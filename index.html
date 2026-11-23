@@ -418,6 +418,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
       <span class="topbar-title" id="topbar-title">Command Center</span>
     </div>
     <div class="topbar-actions">
+      <button id="drive-reconnect-chip" class="btn btn-ghost btn-sm" style="display:none;align-items:center;gap:4px;border:1px solid var(--border);font-size:.75rem" onclick="driveSignIn().catch(()=>{})" title="Reconectar ao Google Drive para sincronizar">☁ Reconectar Drive</button>
       <span class="text-xs text-muted" id="topbar-date"></span>
       <button class="btn btn-primary btn-sm" id="topbar-cta" onclick="openQuickAdd()">+ Novo</button>
     </div>
@@ -711,7 +712,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
             <li>Anexos (PDFs, imagens) armazenados no Drive</li>
             <li>Gratuito &#8212; usa seu pr&#xF3;prio Google Drive</li>
           </ul>
-          <button class="btn btn-primary btn-sm" onclick="driveSignIn().then(()=>refreshDriveSettingsUI()).catch(e=>showToast('Erro: '+e.message,'error'))">
+          <button class="btn btn-primary btn-sm" id="drive-connect-btn" onclick="driveSignIn().catch(()=>{})">
             Conectar com Google
           </button>
         </div>
@@ -731,8 +732,10 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
             <button class="btn btn-primary btn-sm" onclick="driveSyncNow()">&#x1F504; Sincronizar agora</button>
             <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="driveSignOut();refreshDriveSettingsUI()">Desconectar</button>
           </div>
+          <div id="drive-diag" class="text-xs text-muted mt-3" style="background:var(--surface2);padding:8px 10px;border-radius:7px;line-height:1.7"></div>
         </div>
       </div>
+      <div id="app-version-line" class="text-xs text-muted mt-3" style="text-align:right;opacity:.7"></div>
     </div>
   </div>
 </div><!-- /main -->
@@ -2189,237 +2192,362 @@ function stripAttachments(state) {
 let _lastJson = null, _lastSavedAt = 0, _idbWriting = false, _idbQueued = false, _storageFull = false;
 
 // ═══════════════════════════════════════════════════════════
-//  GOOGLE DRIVE INTEGRATION
+//  GOOGLE DRIVE — SINCRONIZAÇÃO (núcleo revisado v3.28.6)
+//  Regras:
+//  1. Nunca envia ao Drive antes de ter baixado o que já está lá nesta sessão.
+//  2. Antes de enviar, confere se outro aparelho mudou o arquivo; se mudou, funde primeiro.
+//  3. Fusão em 3 vias por id: edição mais recente vence (_mt), exclusões são respeitadas.
+//  4. Nenhuma janela do Google abre sem toque do usuário (navegadores bloqueiam).
+//  5. Nenhum token é gravado no aparelho — só a marca "estava conectado".
 // ═══════════════════════════════════════════════════════════
 
-function driveSignIn() {
-  if (!window.google) { toast('Aguarde o carregamento do Google...', true); return Promise.reject(new Error('Google não carregado')); }
+function driveScopes() {
+  return DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
+}
+let _driveHasPulled = false;        // já baixou do Drive nesta sessão?
+let _driveKnownRemoteMT = null;     // modifiedTime do arquivo no Drive na última leitura/escrita
+let _driveLock = Promise.resolve(); // serializa pull/push
+let _driveLastPush = null;
+const SYNC_BASE_KEY = 'personalOS_syncBase';
+const SYNC_SKIP_KEYS = new Set(['pendingImport']);
+
+function driveExclusive(fn) {
+  const run = _driveLock.then(fn, fn);
+  _driveLock = run.catch(() => {});
+  return run;
+}
+
+// ── Rastreamento de edições: marca _mt quando um registro muda ──
+let _syncSigCache = null;
+function _syncHash(str) { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return h; }
+function _syncSig(x) { return _syncHash(JSON.stringify(x, (k, v) => k === '_mt' ? undefined : v)); }
+function syncTrackChanges(bump) {
+  const now = Date.now(), next = {};
+  const first = !_syncSigCache;
+  for (const k of Object.keys(STATE)) {
+    const arr = STATE[k];
+    if (!Array.isArray(arr) || SYNC_SKIP_KEYS.has(k)) continue;
+    next[k] = {};
+    for (const it of arr) {
+      if (!it || typeof it !== 'object' || !('id' in it)) continue;
+      const h = _syncSig(it);
+      next[k][it.id] = h;
+      if (bump && !first && _syncSigCache[k] && _syncSigCache[k][it.id] !== h) it._mt = now;
+      else if (bump && !first && !_syncSigCache[k]) it._mt = now;
+    }
+  }
+  _syncSigCache = next;
+}
+function _syncTs(x) {
+  if (!x) return 0;
+  const n = Number(x._mt || x.updatedAt || x.updated || x.createdAt || x.created || x.addedAt || 0);
+  return n || Date.parse(x.updatedAt || x.createdAt || '') || 0;
+}
+function syncLoadBase() { try { return JSON.parse(localStorage.getItem(SYNC_BASE_KEY) || '{}'); } catch(e) { return {}; } }
+function syncSaveBase() {
+  const b = {};
+  for (const k of Object.keys(STATE)) {
+    const arr = STATE[k];
+    if (Array.isArray(arr) && !SYNC_SKIP_KEYS.has(k)) b[k] = arr.filter(x => x && typeof x === 'object' && 'id' in x).map(x => x.id);
+  }
+  try { localStorage.setItem(SYNC_BASE_KEY, JSON.stringify(b)); } catch(e) {}
+}
+
+// Fusão em 3 vias (base = ids presentes na última sincronização bem-sucedida deste aparelho)
+function mergeStateFrom(remote) {
+  if (!remote || typeof remote !== 'object') return;
+  const base = syncLoadBase();
+  for (const k of Object.keys(remote)) {
+    const rv = remote[k];
+    if (!Array.isArray(rv) || SYNC_SKIP_KEYS.has(k)) continue;
+    const lv = Array.isArray(STATE[k]) ? STATE[k] : [];
+    const withId = rv.every(x => x && typeof x === 'object' && 'id' in x) && lv.every(x => x && typeof x === 'object' && 'id' in x);
+    if (!withId) { if (!lv.length) STATE[k] = rv; continue; } // listas sem id: só preenche se vazia
+    const baseIds = new Set(base[k] || []);
+    const rmap = new Map(rv.map(x => [x.id, x]));
+    const lmap = new Map(lv.map(x => [x.id, x]));
+    // Proteção: se a fusão apagaria a maior parte dos itens deste aparelho, não apaga nada
+    const wouldDelete = lv.filter(l => !rmap.has(l.id) && baseIds.has(l.id)).length;
+    const allowDeletes = !(wouldDelete > 5 && wouldDelete > lv.length * 0.5);
+    const out = [];
+    for (const l of lv) {
+      const r = rmap.get(l.id);
+      if (r) out.push(_syncTs(r) > _syncTs(l) ? r : l);
+      else if (baseIds.has(l.id) && allowDeletes) { /* excluído em outro aparelho */ }
+      else out.push(l);
+    }
+    for (const r of rv) {
+      if (lmap.has(r.id)) continue;
+      if (baseIds.has(r.id)) continue; // excluído neste aparelho
+      out.push(r);
+    }
+    STATE[k] = out;
+  }
+  if (remote.settings && typeof remote.settings === 'object') STATE.settings = { ...remote.settings, ...STATE.settings, ...pickNewerSettings(remote.settings) };
+}
+function pickNewerSettings(rs) {
+  // Nome/ano vêm do Drive se este aparelho ainda estiver com o padrão
+  const out = {};
+  if (rs.name && (!STATE.settings.name || STATE.settings.name === 'Gabriela Machado')) out.name = rs.name;
+  return out;
+}
+
+function renderAll() {
+  try { renderSidebarDims(); } catch(e) {}
+  try { updateInboxBadge(); } catch(e) {}
+  try { renderPage(currentPage, _currentSubId); } catch(e) { console.error('renderAll:', e); }
+}
+
+// ── Token: só com toque do usuário ──
+function driveRequestToken() {
   return new Promise((resolve, reject) => {
+    if (!window.google || !google.accounts || !google.accounts.oauth2) {
+      reject(new Error('O Google ainda está carregando. Tente de novo em alguns segundos.')); return;
+    }
     const client = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
-      scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-      callback: async (resp) => {
-        if (resp.error) { toast('Erro ao conectar com Google: ' + resp.error, true); reject(new Error(resp.error)); return; }
-        _driveToken = resp.access_token;
-        _driveTokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
-        _driveEnabled = true;
-        // Buscar info do usuário
-        try {
-          const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: 'Bearer ' + _driveToken } });
-          _driveUser = await r.json();
-        } catch(e) { _driveUser = null; }
-        // Persistir estado de conexão
-        try { localStorage.setItem('personalOS_driveEnabled', '1'); } catch(e) {}
-        toast('✅ Google Drive conectado!');
-        await driveEnsureFolder();
-        await drivePull(); // carregar dados do Drive (pode ter versão mais nova)
-        try { await drivePush(); } catch(e) { toast('Erro ao enviar ao Drive: ' + e.message, true); }
-        renderDriveStatus('ok');
-        refreshDriveSettingsUI();
-        resolve();
-      }
+      scope: driveScopes(),
+      prompt: '',
+      callback: (resp) => resp.error ? reject(new Error(resp.error_description || resp.error)) : resolve(resp),
+      error_callback: (err) => reject(new Error(
+        err && err.type === 'popup_failed_to_open' ? 'O navegador bloqueou a janela do Google. Permita pop-ups para este site.' :
+        err && err.type === 'popup_closed' ? 'Janela do Google fechada antes de concluir.' :
+        (err && (err.message || err.type)) || 'Falha no login do Google'))
     });
     client.requestAccessToken();
   });
 }
 
-async function driveSyncNow() {
-  if (!driveIsConnected()) { showToast('Drive não conectado','error'); return; }
-  renderDriveStatus('syncing');
-  try {
-    await drivePull();
-    await drivePush();
-    renderDriveStatus('ok');
-    showToast('✅ Sincronizado com Google Drive! (' + (STATE.tasks||[]).length + ' tarefas, ' + (STATE.goals||[]).length + ' metas)','success');
-  } catch(e) {
-    renderDriveStatus('error');
-    showToast('Erro na sincronização: '+e.message,'error');
-  }
+function driveIsConnected() {
+  return _driveEnabled && !!_driveToken && Date.now() < _driveTokenExpiry;
+}
+async function driveEnsureToken() { return driveIsConnected(); } // nunca abre janela em segundo plano
+
+function driveUpdateChip() {
+  const chip = document.getElementById('drive-reconnect-chip');
+  if (!chip) return;
+  let wasOn = false; try { wasOn = localStorage.getItem('personalOS_driveEnabled') === '1'; } catch(e) {}
+  chip.style.display = (wasOn && !driveIsConnected()) ? 'inline-flex' : 'none';
 }
 
-function refreshDriveSettingsUI() {
-  const connected = driveIsConnected();
-  const disc = document.getElementById('drive-disconnected-view');
-  const conn = document.getElementById('drive-connected-view');
-  if (!disc || !conn) return;
-  if (connected) {
-    disc.style.display = 'none';
-    conn.style.display = 'block';
-    if (_driveUser) {
-      const nameEl = document.getElementById('drive-user-name');
-      const emailEl = document.getElementById('drive-user-email');
-      const avatarEl = document.getElementById('drive-user-avatar');
-      if (nameEl) nameEl.textContent = _driveUser.name || 'Usuário Google';
-      if (emailEl) emailEl.textContent = _driveUser.email || '';
-      if (avatarEl) avatarEl.textContent = (_driveUser.name||'G')[0].toUpperCase();
-    }
-  } else {
-    disc.style.display = 'block';
-    conn.style.display = 'none';
-  }
+// Conectar / reconectar (precisa ser chamado por um clique)
+function driveSignIn() {
+  return driveRequestToken().then(async (resp) => {
+    _driveToken = resp.access_token;
+    _driveTokenExpiry = Date.now() + ((resp.expires_in || 3600) - 60) * 1000;
+    _driveEnabled = true;
+    try { localStorage.setItem('personalOS_driveEnabled', '1'); } catch(e) {}
+    try {
+      const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: 'Bearer ' + _driveToken } });
+      if (r.ok) _driveUser = await r.json();
+    } catch(e) {}
+    driveUpdateChip();
+    refreshDriveSettingsUI();
+    await driveSyncNow(true);
+  }).catch(e => {
+    toast('Google Drive: ' + e.message, true);
+    driveUpdateChip();
+    throw e;
+  });
 }
 
 function driveSignOut() {
   _driveToken = null; _driveTokenExpiry = 0; _driveEnabled = false;
   _driveUser = null; _driveDataFileId = null; _driveFolderId = null;
+  _driveHasPulled = false; _driveKnownRemoteMT = null;
   try { localStorage.removeItem('personalOS_driveEnabled'); } catch(e) {}
   toast('Drive desconectado.');
   renderDriveStatus();
-  if (currentPage === 'settings') renderSettings();
+  driveUpdateChip();
+  refreshDriveSettingsUI();
 }
 
-function driveIsConnected() {
-  return _driveEnabled && _driveToken && Date.now() < _driveTokenExpiry;
+function refreshDriveSettingsUI() {
+  const vl = document.getElementById('app-version-line');
+  if (vl) vl.textContent = 'Personal OS v' + APP_VERSION;
+  const connected = driveIsConnected();
+  const disc = document.getElementById('drive-disconnected-view');
+  const conn = document.getElementById('drive-connected-view');
+  if (!disc || !conn) return;
+  disc.style.display = connected ? 'none' : 'block';
+  conn.style.display = connected ? 'block' : 'none';
+  const btn = document.getElementById('drive-connect-btn');
+  let wasOn = false; try { wasOn = localStorage.getItem('personalOS_driveEnabled') === '1'; } catch(e) {}
+  if (btn) btn.textContent = wasOn ? 'Reconectar com Google' : 'Conectar com Google';
+  if (connected) {
+    const u = _driveUser || {};
+    const nameEl = document.getElementById('drive-user-name');
+    const emailEl = document.getElementById('drive-user-email');
+    const avatarEl = document.getElementById('drive-user-avatar');
+    if (nameEl) nameEl.textContent = u.name || 'Usuário Google';
+    if (emailEl) emailEl.textContent = u.email || '';
+    if (avatarEl) avatarEl.textContent = (u.name || 'G')[0].toUpperCase();
+    setTimeout(driveRenderDiag, 0);
+  }
 }
 
-async function driveEnsureToken() {
-  if (driveIsConnected()) return true;
-  if (!_driveEnabled) return false;
-  // Token expirado — renegociar silenciosamente
-  return new Promise(resolve => {
-    if (!window.google) { resolve(false); return; }
-    const client = google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID,
-      scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-      prompt: '',
-      callback: (resp) => {
-        if (resp.error) { resolve(false); return; }
-        _driveToken = resp.access_token;
-        _driveTokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
-        resolve(true);
-      }
-    });
-    client.requestAccessToken();
-  });
+async function driveApi(url, opt = {}) {
+  const r = await fetch(url, { ...opt, headers: { Authorization: 'Bearer ' + _driveToken, ...(opt.headers || {}) } });
+  if (r.status === 401) { _driveToken = null; _driveTokenExpiry = 0; driveUpdateChip(); throw new Error('Sessão do Google expirou — toque em "Reconectar Drive".'); }
+  return r;
 }
 
 async function driveEnsureFolder() {
   if (_driveFolderId) return _driveFolderId;
-  if (!await driveEnsureToken()) return null;
-  // Verificar se pasta já existe
+  if (!driveIsConnected()) return null;
   const q = `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
-    headers: { Authorization: 'Bearer ' + _driveToken }
-  });
+  const r = await driveApi(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=createdTime&fields=files(id,name)`);
+  if (!r.ok) throw new Error('Não foi possível acessar o Drive (' + r.status + ')');
   const data = await r.json();
-  if (data.files && data.files.length > 0) {
-    _driveFolderId = data.files[0].id;
-    return _driveFolderId;
-  }
-  // Criar pasta
-  const cr = await fetch('https://www.googleapis.com/drive/v3/files', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + _driveToken, 'Content-Type': 'application/json' },
+  if (data.files && data.files.length > 0) { _driveFolderId = data.files[0].id; return _driveFolderId; }
+  const cr = await driveApi('https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
   });
-  const folder = await cr.json();
-  _driveFolderId = folder.id;
+  if (!cr.ok) throw new Error('Não foi possível criar a pasta no Drive (' + cr.status + ')');
+  _driveFolderId = (await cr.json()).id;
   return _driveFolderId;
 }
 
-async function drivePush() {
-  if (!await driveEnsureToken()) return false;
-  if (_driveSyncing) return false;
-  _driveSyncing = true;
-  renderDriveStatus('syncing');
+// Arquivo de dados mais recente (se houver cópias duplicadas, usa a última modificada)
+async function driveFindDataFile(folderId) {
+  const q = `name='${DRIVE_DATA_FILENAME}' and '${folderId}' in parents and trashed=false`;
+  const r = await driveApi(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=modifiedTime desc&fields=files(id,modifiedTime,size)`);
+  if (!r.ok) throw new Error('Não foi possível listar o Drive (' + r.status + ')');
+  const d = await r.json();
+  return (d.files && d.files.length) ? d.files[0] : null;
+}
+
+// ── Baixar e fundir (interno, sem trava) ──
+async function _drivePullInner() {
+  const folderId = await driveEnsureFolder();
+  if (!folderId) throw new Error('Drive não conectado');
+  const meta = await driveFindDataFile(folderId);
+  if (!meta) { _driveDataFileId = null; _driveHasPulled = true; return { found: false }; }
+  _driveDataFileId = meta.id;
+  const r = await driveApi(`https://www.googleapis.com/drive/v3/files/${meta.id}?alt=media`);
+  if (!r.ok) throw new Error('Não foi possível baixar os dados do Drive (' + r.status + ')');
+  let remote;
+  try { remote = await r.json(); } catch(e) { throw new Error('Arquivo do Drive está corrompido'); }
+  if (!remote || typeof remote !== 'object' || Array.isArray(remote)) throw new Error('Arquivo do Drive em formato inesperado');
+  mergeStateFrom(remote);
+  syncTrackChanges(false);   // o que veio do Drive não conta como edição deste aparelho
+  saveLocal();
+  _driveKnownRemoteMT = meta.modifiedTime;
+  _driveHasPulled = true;
+  renderAll();
+  const n = (k) => Array.isArray(remote[k]) ? remote[k].length : 0;
+  return { found: true, tasks: n('tasks'), goals: n('goals'), events: n('events') };
+}
+
+// ── Enviar (interno, sem trava) ──
+async function _drivePushInner() {
+  if (!_driveHasPulled) await _drivePullInner(); // regra 1
+  const folderId = await driveEnsureFolder();
+  if (!folderId) throw new Error('Drive não conectado');
+  const meta = await driveFindDataFile(folderId);
+  if (meta && _driveKnownRemoteMT && meta.modifiedTime !== _driveKnownRemoteMT) {
+    await _drivePullInner(); // regra 2: outro aparelho salvou depois da nossa última leitura
+  }
+  if (meta) _driveDataFileId = meta.id;
+  const content = JSON.stringify(STATE);
+  const initUrl = _driveDataFileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${_driveDataFileId}?uploadType=resumable&fields=id,modifiedTime`
+    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,modifiedTime';
+  const init = await driveApi(initUrl, {
+    method: _driveDataFileId ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': 'application/json' },
+    body: JSON.stringify(_driveDataFileId ? {} : { name: DRIVE_DATA_FILENAME, parents: [folderId], mimeType: 'application/json' })
+  });
+  if (!init.ok) throw new Error('Drive recusou o envio (' + init.status + ')');
+  const uploadUrl = init.headers.get('Location');
+  let up;
+  if (uploadUrl) {
+    up = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: content });
+  } else {
+    // Plano B: envio multipart (caso o navegador não exponha o endereço do envio resumable)
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(_driveDataFileId ? {} : { name: DRIVE_DATA_FILENAME, parents: [folderId], mimeType: 'application/json' })], { type: 'application/json' }));
+    form.append('file', new Blob([content], { type: 'application/json' }));
+    up = await driveApi(_driveDataFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${_driveDataFileId}?uploadType=multipart&fields=id,modifiedTime`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime',
+      { method: _driveDataFileId ? 'PATCH' : 'POST', body: form });
+  }
+  if (!up.ok) throw new Error('Falha ao enviar os dados (' + up.status + ')');
+  const d = await up.json().catch(() => ({}));
+  if (d.id) _driveDataFileId = d.id;
+  if (d.modifiedTime) _driveKnownRemoteMT = d.modifiedTime;
+  syncSaveBase(); // Drive e este aparelho agora estão iguais
+  _driveLastPush = { ok: true, at: new Date(), mb: (content.length / 1048576).toFixed(2) };
+  try { localStorage.removeItem('personalOS_driveDirty'); } catch(e) {}
+  return true;
+}
+
+// ── Funções públicas (com trava) ──
+function drivePull() {
+  return driveExclusive(async () => {
+    renderDriveStatus('syncing');
+    try { const r = await _drivePullInner(); renderDriveStatus('ok'); return r; }
+    catch(e) { renderDriveStatus('error'); throw e; }
+  });
+}
+function drivePush() {
+  return driveExclusive(async () => {
+    renderDriveStatus('syncing');
+    try { await _drivePushInner(); renderDriveStatus('ok'); driveRenderDiag(); return true; }
+    catch(e) {
+      _driveLastPush = { ok: false, at: new Date(), err: e.message };
+      renderDriveStatus('error'); driveRenderDiag(); throw e;
+    }
+  });
+}
+async function driveSyncNow(silentStart) {
+  if (!driveIsConnected()) { return driveSignIn(); } // botão = toque do usuário, pode abrir janela
   try {
-    const folderId = await driveEnsureFolder();
-    if (!folderId) throw new Error('Pasta do Drive indisponível');
-    const content = JSON.stringify(STATE);
-    if (!_driveDataFileId) _driveDataFileId = await driveFindDataFile(folderId);
-    // Upload resumable: suporta arquivos grandes (o multipart tem limite de 5 MB)
-    const meta = _driveDataFileId ? {} : { name: DRIVE_DATA_FILENAME, parents: [folderId], mimeType: 'application/json' };
-    const initUrl = _driveDataFileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${_driveDataFileId}?uploadType=resumable`
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id';
-    const init = await fetch(initUrl, {
-      method: _driveDataFileId ? 'PATCH' : 'POST',
-      headers: { Authorization: 'Bearer ' + _driveToken, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': 'application/json' },
-      body: JSON.stringify(meta)
+    const res = await driveExclusive(async () => {
+      renderDriveStatus('syncing');
+      const pulled = await _drivePullInner();
+      await _drivePushInner();
+      return pulled;
     });
-    if (!init.ok) throw new Error('Drive recusou o envio (' + init.status + ')');
-    const uploadUrl = init.headers.get('Location');
-    if (!uploadUrl) throw new Error('Drive não retornou URL de envio');
-    const up = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: content });
-    if (!up.ok) throw new Error('Falha ao enviar dados (' + up.status + ')');
-    const d = await up.json().catch(() => ({}));
-    if (d.id) _driveDataFileId = d.id;
-    _driveSyncing = false;
     renderDriveStatus('ok');
-    return true;
+    driveRenderDiag();
+    toast(`✅ Sincronizado: ${(STATE.tasks||[]).length} tarefas, ${(STATE.goals||[]).length} metas, ${(STATE.events||[]).length} compromissos neste aparelho`);
+    return res;
   } catch(e) {
-    console.error('Drive push error:', e);
-    _driveSyncing = false;
+    _driveLastPush = { ok: false, at: new Date(), err: e.message };
     renderDriveStatus('error');
+    driveRenderDiag();
+    toast('Erro na sincronização: ' + e.message, true);
     throw e;
   }
 }
 
-// Acha o arquivo de dados; se houver duplicados, usa o modificado mais recentemente
-async function driveFindDataFile(folderId) {
-  const q = `name='${DRIVE_DATA_FILENAME}' and '${folderId}' in parents and trashed=false`;
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=modifiedTime desc&fields=files(id,modifiedTime,size)`, {
-    headers: { Authorization: 'Bearer ' + _driveToken }
-  });
-  if (!r.ok) throw new Error('Não foi possível listar o Drive (' + r.status + ')');
-  const d = await r.json();
-  return (d.files && d.files.length) ? d.files[0].id : null;
-}
-
-async function drivePull() {
-  if (!await driveEnsureToken()) return false;
-  _driveSyncing = true;
-  renderDriveStatus('syncing');
+async function driveRenderDiag() {
+  const el = document.getElementById('drive-diag');
+  if (!el) return;
+  const hm = (d) => d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+  const local = `<strong>Neste aparelho:</strong> ${(STATE.tasks||[]).length} tarefas · ${(STATE.goals||[]).length} metas · ${(STATE.events||[]).length} compromissos`;
+  const last = _driveLastPush
+    ? (_driveLastPush.ok ? `<br><strong>Último envio:</strong> ✅ ${hm(_driveLastPush.at)} (${_driveLastPush.mb} MB)`
+                         : `<br><strong>Último envio:</strong> <span style="color:var(--danger)">❌ ${_driveLastPush.err}</span>`)
+    : '<br><strong>Último envio:</strong> nenhum nesta sessão';
+  el.innerHTML = local + last + '<br><strong>No Drive:</strong> verificando...';
+  let remote;
   try {
+    if (!driveIsConnected()) { el.innerHTML = local + last; return; }
     const folderId = await driveEnsureFolder();
-    if (!folderId) { _driveSyncing = false; return false; }
-    if (!_driveDataFileId) {
-      _driveDataFileId = await driveFindDataFile(folderId);
-      if (!_driveDataFileId) { _driveSyncing = false; renderDriveStatus('ok'); return false; }
-    }
-    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${_driveDataFileId}?alt=media`, {
-      headers: { Authorization: 'Bearer ' + _driveToken }
-    });
-    if (!r.ok) { _driveSyncing = false; renderDriveStatus('error'); return false; }
-    const remote = await r.json();
-    // Merge: mais recente vence por entidade com id
-    mergeStateFrom(remote);
-    save();
-    renderAll();
-    _driveSyncing = false;
-    renderDriveStatus('ok');
-    const n = (k) => (Array.isArray(remote[k]) ? remote[k].length : 0);
-    toast(`☁️ Drive: ${n('tasks')} tarefas, ${n('goals')} metas, ${n('events')} compromissos recebidos`);
-    return true;
-  } catch(e) {
-    console.error('Drive pull error:', e);
-    _driveSyncing = false;
-    renderDriveStatus('error');
-    return false;
-  }
+    const q = `name='${DRIVE_DATA_FILENAME}' and '${folderId}' in parents and trashed=false`;
+    const r = await driveApi(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=modifiedTime desc&fields=files(id,modifiedTime,size)`);
+    const f = (await r.json()).files || [];
+    remote = f.length
+      ? `<br><strong>No Drive:</strong> arquivo de ${(Number(f[0].size||0)/1048576).toFixed(2)} MB, salvo em ${hm(new Date(f[0].modifiedTime))}${f.length > 1 ? ` · ⚠ ${f.length} cópias (uso a mais recente)` : ''}`
+      : '<br><strong>No Drive:</strong> nenhum arquivo de dados ainda';
+  } catch(e) { remote = '<br><strong>No Drive:</strong> não foi possível verificar'; }
+  el.innerHTML = local + last + remote;
 }
 
-function mergeStateFrom(remote) {
-  if (!remote || typeof remote !== 'object') return;
-  const ts = (x) => Number(x.updatedAt || x.updated || x.createdAt || x.created || x.addedAt || 0) || Date.parse(x.updatedAt || x.createdAt || '') || 0;
-  for (const k of Object.keys(remote)) {
-    const rv = remote[k];
-    if (!Array.isArray(rv)) continue;
-    const lv = Array.isArray(STATE[k]) ? STATE[k] : [];
-    const withId = rv.length ? rv.every(x => x && typeof x === 'object' && 'id' in x) : true;
-    if (!withId) { if (!lv.length) STATE[k] = rv; continue; } // listas sem id (ex.: regras): só preenche se vazio
-    const merged = [...lv];
-    for (const item of rv) {
-      const idx = merged.findIndex(x => x && x.id === item.id);
-      if (idx === -1) merged.push(item);
-      else if (ts(item) > ts(merged[idx])) merged[idx] = item;
-    }
-    STATE[k] = merged;
-  }
-  if (remote.settings) STATE.settings = { ...STATE.settings, ...remote.settings };
-}
-
-// Upload de arquivo de anexo para o Drive
 async function driveUploadAttachment(file) {
   if (!driveIsConnected()) return null;
   const folderId = await driveEnsureFolder();
@@ -2456,11 +2584,12 @@ async function driveUploadAttachment(file) {
   return { driveId: d.id, webViewLink: d.webViewLink, webContentLink: d.webContentLink };
 }
 
-// Auto-save no Drive com debounce de 3 segundos
+// Envio automático ao Drive (3s depois da última alteração)
 function driveSaveDebounced() {
-  if (!driveIsConnected()) return;
+  try { if (localStorage.getItem('personalOS_driveEnabled') === '1') localStorage.setItem('personalOS_driveDirty', '1'); } catch(e) {}
+  if (!driveIsConnected()) { driveUpdateChip(); return; }
   if (_driveSyncTimeout) clearTimeout(_driveSyncTimeout);
-  _driveSyncTimeout = setTimeout(() => drivePush().catch(() => {}), 3000);
+  _driveSyncTimeout = setTimeout(() => drivePush().catch(e => console.warn('Drive auto-push:', e.message)), 3000);
 }
 
 function renderDriveStatus(state) {
@@ -2692,7 +2821,8 @@ async function gmailSignIn() {
         _gmailEnabled = true;
         localStorage.setItem('personalOS_gmailEnabled', '1');
         resolve();
-      }
+      },
+      error_callback: (err) => reject(new Error(err && err.type === 'popup_failed_to_open' ? 'O navegador bloqueou a janela do Google. Permita pop-ups para este site.' : ((err && (err.message || err.type)) || 'Falha no login do Google')))
     });
     client.requestAccessToken();
   });
@@ -2945,7 +3075,8 @@ function gmailSwitchTab(tab) {
   }
 }
 
-function save() {
+function saveLocal() {
+  try { syncTrackChanges(true); } catch(e) { console.warn('syncTrack:', e); }
   let full; try { full = JSON.stringify(STATE); } catch(e) { console.error(e); return; }
   const now = Date.now();
   _lastJson = full; _lastSavedAt = now;
@@ -2956,8 +3087,10 @@ function save() {
     localStorage.setItem(DB_KEY, JSON.stringify(stripAttachments(STATE)));
     localStorage.setItem(DB_KEY + '_savedAt_ms', String(now));
   } catch(e) { /* se não couber, o IndexedDB é o primário */ }
-  // Auto-sync ao Drive com debounce
-  driveSaveDebounced();
+}
+function save() {
+  saveLocal();
+  driveSaveDebounced(); // envio automático ao Drive
 }
 async function _flushIdb() {
   if (_idbWriting) return;
@@ -2995,6 +3128,7 @@ function uid() {
 // NAVEGAÇÃO
 // ═══════════════════════════════════════════
 let currentPage = 'dashboard';
+let _currentSubId = undefined;
 let agendaView = 'week';
 let agendaDate = new Date();
 let goalsView = 'annual';
@@ -3032,6 +3166,7 @@ function navigate(page, subId) {
     document.getElementById('topbar-title').textContent = titles[page] || page;
   }
   currentPage = page;
+  _currentSubId = subId;
 
   // Restore fin-view ID if leaving sub-area
   const hiddenFin = document.getElementById('__fin_view_hidden');
@@ -3080,7 +3215,7 @@ function renderPage(page, subId) {
     case 'financial': renderFinancial(); break;
     case 'social': renderSocial(); break;
     case 'tempo': renderTempo(); break;
-    case 'settings': renderSettings(); setTimeout(() => { refreshDriveSettingsUI(); refreshNotifSettingsUI(); if (window._drivePendingUIRefresh) { window._drivePendingUIRefresh = false; } }, 50); break;
+    case 'settings': renderSettings(); setTimeout(() => { refreshDriveSettingsUI(); refreshNotifSettingsUI(); }, 50); break;
     case 'performance': renderPerformance(); break;
   }
 }
@@ -4389,6 +4524,7 @@ function suggestPerformanceLog(task) {
   setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); }, 6000);
 }
 function showToast(msg, duration=2200) {
+  if (typeof duration !== 'number') { if (duration === 'error') { toast(msg, true); return; } duration = 3000; }
   let el = document.getElementById('_toast_');
   if (!el) {
     el = document.createElement('div');
@@ -7740,7 +7876,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.28.4';
+const APP_VERSION = '3.28.6';
 const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 let _gmailToken = null; let _gmailTokenExpiry = 0; let _gmailEnabled = false;
 
@@ -7795,6 +7931,7 @@ function checkVersionAndInit() {
 
 function _initApp() {
   load();
+  try { syncTrackChanges(false); } catch(e) {} // linha de base: nada carregado conta como edição
   _appInitialized = true;
   // Sincroniza já os dois armazenamentos (IndexedDB + espelho leve no localStorage) com carimbo de tempo,
   // para a proteção contra perda valer desde a abertura.
@@ -7807,40 +7944,10 @@ function _initApp() {
   if (STATE.settings.notifEnabled && Notification.permission === 'granted') {
     setTimeout(() => notifScheduleAll(), 2000);
   }
-  // Auto-reconectar Drive silenciosamente se estava conectado antes
-  if (localStorage.getItem('personalOS_driveEnabled') === '1') {
-    setTimeout(() => {
-      try {
-        if (typeof google === 'undefined') return;
-        const client = google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: DRIVE_SCOPE + ' https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-          prompt: '',
-          callback: async (resp) => {
-            if (resp.error) { localStorage.removeItem('personalOS_driveEnabled'); return; }
-            _driveToken = resp.access_token;
-            _driveTokenExpiry = Date.now() + (resp.expires_in || 3600) * 1000;
-            _driveEnabled = true;
-            try {
-              const ui = await fetch('https://www.googleapis.com/oauth2/v2/userinfo',
-                {headers:{Authorization:'Bearer '+_driveToken}});
-              if (ui.ok) _driveUser = await ui.json();
-            } catch(_) {}
-            await driveEnsureFolder();
-            await drivePull();
-            renderDriveStatus('ok');
-            // Atualiza UI de settings se estiver aberta, senão marca para atualizar ao navegar
-            if (currentPage === 'settings') {
-              refreshDriveSettingsUI();
-            } else {
-              window._drivePendingUIRefresh = true;
-            }
-          }
-        });
-        client.requestAccessToken();
-      } catch(e) { localStorage.removeItem('personalOS_driveEnabled'); }
-    }, 1800); // aguarda GIS carregar
-  }
+  // Drive: navegadores bloqueiam a janela do Google sem toque do usuário,
+  // então mostramos o botão "Reconectar Drive" no topo em vez de tentar sozinho.
+  driveUpdateChip();
+  setInterval(driveUpdateChip, 60000);
 }
 
 function showVersionUpdateWarning(oldVer, newVer) {
@@ -9894,11 +10001,16 @@ navigate = function(page, subId) {
   <!-- Service Worker — cache offline -->
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-          .then(reg => console.log('[SW] Registrado:', reg.scope))
-          .catch(err => console.warn('[SW] Falha:', err));
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+        .then(reg => { reg.update(); console.log('[SW] Registrado:', reg.scope); })
+        .catch(err => console.warn('[SW] Falha:', err));
+      // Quando uma versão nova do app assume, recarrega uma vez para usá-la
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return; reloaded = true; location.reload();
       });
-    }
-  </script>
+    });
+  }
+</script>
 </body></html>

@@ -1,71 +1,55 @@
-// Personal OS 2027 — Service Worker v3.28.4
-const CACHE_NAME = 'personal-os-v3.28.4';
-const ASSETS = [
-  './',
-  './index.html',
-  'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=DM+Sans:wght@300;400;500;600&display=swap'
-];
+// Personal OS 2027 — Service Worker v3.28.6
+// Estratégia: REDE PRIMEIRO para o app (sempre pega a versão mais nova quando há internet),
+// cache só como reserva quando estiver offline.
+const CACHE_NAME = 'personal-os-v3.28.6';
+const ASSETS = ['./', './index.html'];
 
-// Instala e cacheia os assets principais
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(ASSETS).catch(err => {
-        // Fontes podem falhar offline — ignora silenciosamente
-        console.warn('[SW] Cache parcial:', err);
-      });
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(ASSETS).catch(err => console.warn('[SW] Cache parcial:', err)))
+      .then(() => self.skipWaiting())
   );
 });
 
-// Ativa e limpa caches antigos
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-      )
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
-// Intercepta requisições — cache-first para o app, network-first para Drive API
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
 
-  // Drive API e Google Auth — sempre vai para a rede (não cacheia dados pessoais)
-  if (url.hostname.includes('googleapis.com') || 
-      url.hostname.includes('accounts.google.com') ||
-      url.hostname.includes('google.com')) {
-    return; // deixa o browser tratar normalmente
-  }
+  // APIs do Google (Drive, Gmail, login) — nunca cacheia, nunca intercepta
+  if (url.hostname.endsWith('googleapis.com') || url.hostname.endsWith('google.com') || url.hostname.endsWith('gstatic.com')) return;
 
-  // Google Fonts — cache-first
+  // Fontes — cache primeiro (não mudam)
   if (url.hostname.includes('fonts.g')) {
     event.respondWith(
-      caches.match(event.request).then(cached => 
-        cached || fetch(event.request).then(resp => {
-          const clone = resp.clone();
-          caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
-          return resp;
-        }).catch(() => cached)
-      )
+      caches.match(req).then(cached => cached || fetch(req).then(resp => {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then(c => c.put(req, clone));
+        return resp;
+      }))
     );
     return;
   }
 
-  // App principal (index.html e assets) — cache-first, atualiza em background
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      const fetchPromise = fetch(event.request).then(resp => {
+  // App (index.html, sw.js etc.) — rede primeiro, cache se offline
+  if (url.origin === self.location.origin) {
+    event.respondWith(
+      fetch(req, { cache: 'no-store' }).then(resp => {
         if (resp && resp.status === 200) {
           const clone = resp.clone();
-          caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+          caches.open(CACHE_NAME).then(c => c.put(req, clone));
         }
         return resp;
-      }).catch(() => null);
-
-      return cached || fetchPromise;
-    })
-  );
+      }).catch(() => caches.match(req).then(c => c || caches.match('./index.html')))
+    );
+  }
 });
