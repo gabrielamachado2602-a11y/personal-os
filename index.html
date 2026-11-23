@@ -93,7 +93,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
   z-index:100;overflow-y:auto;overflow-x:hidden;
   transition:transform .2s ease;
 }
-.main{margin-left:var(--sidebar-w);flex:1;min-height:100vh;display:flex;flex-direction:column}
+.main{margin-left:var(--sidebar-w);flex:1;min-width:0;min-height:100vh;display:flex;flex-direction:column}
 .topbar{
   background:var(--surface);border-bottom:1px solid var(--border);
   padding:0 24px;height:52px;display:flex;align-items:center;
@@ -288,6 +288,11 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .kanban-col-title{font-size:.775rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:12px}
 .kanban-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:8px;cursor:pointer}
 .kanban-card:hover{box-shadow:var(--shadow-md)}
+.pipe-board{max-width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(220px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+.pipe-col{scroll-snap-align:start;min-height:120px}
+.pipe-card .btn:disabled{opacity:.3;cursor:default}
+.book-stars{font-size:1rem;letter-spacing:1px;white-space:nowrap;margin-right:6px}
+@media(max-width:768px){.pipe-board{grid-auto-columns:82%}}
 
 /* ── MOBILE ── */
 .mobile-nav{display:none}
@@ -616,6 +621,8 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 
   <!-- PERFORMANCE PAGE -->
   <div id="page-performance" class="page hidden"></div>
+  <div id="page-pipeline" class="page hidden"></div>
+  <div id="page-books" class="page hidden"></div>
 
 <!-- SETTINGS PAGE -->
   <div id="page-settings" class="page hidden">
@@ -2009,6 +2016,8 @@ let STATE = {
   socialGoals: [],
   pendingImport: [],
   performanceLogs: [],
+  applications: [],
+  books: [],
   inboxRules: [
     { keyword: 'comprar', type: 'purchase' },
     { keyword: 'mercado', type: 'purchase' },
@@ -2104,7 +2113,7 @@ function load() {
     // Garantir arrays obrigatórios
     const arrays = ['inbox','goals','projects','tasks','events','habits','habitLogs',
       'energyLogs','transactions','finGoals','posts','socialMetrics','socialGoals',
-      'pendingImport','inboxRules','bodyComp','subHistory','calNotes'];
+      'pendingImport','inboxRules','bodyComp','subHistory','calNotes','applications','books','performanceLogs'];
     arrays.forEach(k => { if (!Array.isArray(STATE[k])) STATE[k] = []; });
     // Migration: ensure each dimension has subs array
     STATE.dimensions.forEach(d => { if (!d.subs) d.subs = []; });
@@ -3160,7 +3169,7 @@ function navigate(page, subId) {
     projects: 'Projetos', tasks: 'Tarefas', agenda: 'Agenda',
     habits: 'Hábitos', energy: 'Energia & Capacidade',
     financial: 'Financial OS', social: 'Redes Sociais', tempo: 'Dimensão de Tempo', settings: 'Configurações',
-    performance: 'Caderneta de Performance'
+    performance: 'Caderneta de Performance', pipeline: 'Pipeline de Candidaturas', books: 'Estante de Leitura'
   };
   if (!page.startsWith('dim_') && page !== 'subarea') {
     document.getElementById('topbar-title').textContent = titles[page] || page;
@@ -3217,6 +3226,8 @@ function renderPage(page, subId) {
     case 'tempo': renderTempo(); break;
     case 'settings': renderSettings(); setTimeout(() => { refreshDriveSettingsUI(); refreshNotifSettingsUI(); }, 50); break;
     case 'performance': renderPerformance(); break;
+    case 'pipeline': renderPipeline(); break;
+    case 'books': renderBooks(); break;
   }
 }
 
@@ -7876,7 +7887,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.28.6';
+const APP_VERSION = '3.29.0';
 const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 let _gmailToken = null; let _gmailTokenExpiry = 0; let _gmailEnabled = false;
 
@@ -8031,6 +8042,598 @@ async function boot() {
   else _idbState = idbStr; // ambos podem ser null → início limpo
   checkVersionAndInit();
 }
+
+// ═══════════════════════════════════════════════════════════
+//  v3.29.0 — PIPELINE DE CANDIDATURAS + ESTANTE DE LEITURA
+// ═══════════════════════════════════════════════════════════
+
+function _daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const a = new Date(todayStr() + 'T12:00:00'), b = new Date(dateStr + 'T12:00:00');
+  return Math.round((b - a) / 86400000);
+}
+function _whenLabel(dateStr) {
+  const d = _daysUntil(dateStr);
+  if (d === null) return '';
+  if (d < 0) return `há ${-d} dia${d === -1 ? '' : 's'}`;
+  if (d === 0) return 'hoje';
+  if (d === 1) return 'amanhã';
+  return `em ${d} dias`;
+}
+function _ensureModal(id, title, maxW) {
+  let m = document.getElementById(id);
+  if (m) return m;
+  m = document.createElement('div');
+  m.id = id; m.className = 'modal-overlay hidden';
+  m.innerHTML = `<div class="modal-box" style="max-width:${maxW || 560}px">
+    <div class="modal-header"><h3 class="modal-title" id="${id}-title">${title}</h3>
+      <button class="modal-close" onclick="closeModal('${id}')">✕</button></div>
+    <div class="modal-body" id="${id}-body" style="display:flex;flex-direction:column;gap:14px"></div>
+    <div class="modal-footer" id="${id}-footer"></div></div>`;
+  m.addEventListener('click', e => { if (e.target === m) closeModal(id); });
+  document.body.appendChild(m);
+  return m;
+}
+
+// ───────────────────────── PIPELINE DE CANDIDATURAS ─────────────────────────
+const APP_STAGES = [
+  { id: 'interesse',  label: 'Interesse',          icon: '👀' },
+  { id: 'inscrita',   label: 'Inscrita',           icon: '📝' },
+  { id: 'testes',     label: 'Testes online',      icon: '🧠' },
+  { id: 'dinamica',   label: 'Dinâmica / Case',    icon: '👥' },
+  { id: 'entrevista', label: 'Entrevista / Painel', icon: '🎤' },
+  { id: 'final',      label: 'Etapa final',        icon: '🏁' }
+];
+const APP_OUTCOMES = { aprovada: '🎉 Aprovada', reprovada: 'Não avançou', desisti: 'Desisti' };
+const APP_PREP = {
+  interesse:  ['Ler o edital: requisitos, prazos e etapas', 'Confirmar que atendo aos requisitos (formação, idioma, mobilidade)', 'Anotar a data-limite de inscrição'],
+  inscrita:   ['Currículo atualizado para esta vaga', 'Perfil do LinkedIn revisado', 'Respostas do formulário salvas nas notas'],
+  testes:     ['Reservar 1h sem interrupções', 'Treinar lógica/raciocínio numérico', 'Testar internet, câmera e navegador'],
+  dinamica:   ['Pesquisar a empresa: negócio, valores, notícias recentes', 'Ter 2 cases STAR na ponta da língua', 'Plano: ouvir, sintetizar e propor (não só falar)'],
+  entrevista: ['Pitch de 1 minuto: quem sou e por que este programa', 'Revisar 3 cases STAR com resultado em número', 'Preparar 2 perguntas para a banca', 'Planejar deslocamento ou testar áudio/vídeo'],
+  final:      ['Revisar todo o histórico desta candidatura', 'Pensar em pretensão, disponibilidade e mobilidade', 'Enviar agradecimento depois da etapa']
+};
+let _pipeView = 'board';
+
+function _appStageIdx(a) { return Math.max(0, APP_STAGES.findIndex(s => s.id === a.stage)); }
+function _appGoalOptions(sel) {
+  const gs = (STATE.goals || []).filter(g => g.status !== 'done' && g.status !== 'cancelled');
+  return `<option value="">— nenhuma —</option>` + gs.map(g => `<option value="${g.id}" ${g.id === sel ? 'selected' : ''}>${_esc(g.title)}</option>`).join('');
+}
+
+function renderPipeline() {
+  const c = document.getElementById('page-pipeline');
+  if (!c) return;
+  const apps = STATE.applications || [];
+  const active = apps.filter(a => !a.outcome);
+  const closed = apps.filter(a => a.outcome);
+  const ym = todayStr().slice(0, 7);
+  const thisMonth = apps.filter(a => (a.history || []).some(h => h.stage === 'inscrita' && (h.date || '').startsWith(ym))).length;
+  const next7 = active.filter(a => { const d = _daysUntil(a.nextDate); return d !== null && d >= 0 && d <= 7; });
+  const overdue = active.filter(a => { const d = _daysUntil(a.nextDate); return d !== null && d < 0; });
+  const advanced = apps.filter(a => _appStageIdx(a) >= 2 || a.outcome === 'aprovada').length;
+  const applied = apps.filter(a => _appStageIdx(a) >= 1 || a.outcome).length;
+
+  const card = (a) => {
+    const i = _appStageIdx(a);
+    const d = _daysUntil(a.nextDate);
+    const dl = _daysUntil(a.deadline);
+    const dateColor = d === null ? 'var(--text3)' : d < 0 ? 'var(--danger)' : d <= 2 ? 'var(--accent-amber)' : 'var(--text2)';
+    return `<div class="kanban-card pipe-card" onclick="openApplicationModal('${a.id}')">
+      <div style="font-weight:600;font-size:.9rem">${_esc(a.company)}</div>
+      ${a.program ? `<div class="text-xs text-muted" style="margin-top:2px">${_esc(a.program)}</div>` : ''}
+      ${a.nextStep || a.nextDate ? `<div class="text-xs" style="margin-top:8px;color:${dateColor}">▸ ${_esc(a.nextStep || 'Próxima etapa')}${a.nextDate ? ` · ${formatDate(a.nextDate)} (${_whenLabel(a.nextDate)})` : ''}</div>` : ''}
+      ${a.stage === 'interesse' && a.deadline ? `<div class="text-xs" style="margin-top:4px;color:${dl !== null && dl <= 5 ? 'var(--danger)' : 'var(--text3)'}">Inscrição até ${formatDate(a.deadline)}${dl !== null && dl >= 0 ? ` (${_whenLabel(a.deadline)})` : ''}</div>` : ''}
+      <div style="display:flex;gap:4px;margin-top:10px;align-items:center" onclick="event.stopPropagation()">
+        <button class="btn btn-ghost btn-sm" style="padding:2px 8px" ${i === 0 ? 'disabled' : ''} onclick="moveApplication('${a.id}',-1)" title="Voltar etapa">◀</button>
+        <button class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="openPrepModal('${a.id}')" title="Preparar esta etapa">🎯 Preparar</button>
+        <span style="flex:1"></span>
+        ${i < APP_STAGES.length - 1
+          ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px" onclick="moveApplication('${a.id}',1)" title="Avançou para a próxima etapa">Avancei ▶</button>`
+          : `<button class="btn btn-primary btn-sm" style="padding:2px 10px" onclick="openApplicationModal('${a.id}','close')">Resultado</button>`}
+      </div>
+    </div>`;
+  };
+
+  const board = `<div class="pipe-board">${APP_STAGES.map(s => {
+    const list = active.filter(a => (a.stage || 'interesse') === s.id)
+      .sort((x, y) => (x.nextDate || x.deadline || '9999').localeCompare(y.nextDate || y.deadline || '9999'));
+    return `<div class="kanban-col pipe-col">
+      <div class="kanban-col-title">${s.icon} ${s.label} <span style="opacity:.6">${list.length || ''}</span></div>
+      ${list.map(card).join('') || '<div class="text-xs text-muted" style="padding:6px 2px">—</div>'}
+    </div>`;
+  }).join('')}</div>`;
+
+  const closedList = closed.length ? closed.sort((x, y) => (y.closedAt || 0) - (x.closedAt || 0)).map(a => `
+    <div class="item-row" style="cursor:pointer" onclick="openApplicationModal('${a.id}')">
+      <div class="item-content"><div class="item-title">${_esc(a.company)}${a.program ? ` — ${_esc(a.program)}` : ''}</div>
+        <div class="text-xs text-muted">Chegou até: ${APP_STAGES[_appStageIdx(a)].label}${a.outcomeNote ? ' · ' + _esc(a.outcomeNote) : ''}</div></div>
+      <span class="badge ${a.outcome === 'aprovada' ? 'badge-green' : 'badge-gray'}">${APP_OUTCOMES[a.outcome] || a.outcome}</span>
+    </div>`).join('') : '<div class="text-sm text-muted">Nenhuma candidatura encerrada ainda.</div>';
+
+  c.innerHTML = `
+    <div class="section-header">
+      <div class="section-title">Pipeline de Candidaturas</div>
+      <button class="btn btn-primary btn-sm" onclick="openApplicationModal()">+ Candidatura</button>
+    </div>
+    <div class="grid grid-4 mb-4 dash-stats">
+      <div class="stat-card"><div class="stat-label">Ativas</div><div class="stat-value">${active.length}</div><div class="stat-sub">em andamento</div></div>
+      <div class="stat-card"><div class="stat-label">Inscrições no mês</div><div class="stat-value">${thisMonth}</div><div class="stat-sub">${new Date().toLocaleString('pt-BR', { month: 'long' })}</div></div>
+      <div class="stat-card"><div class="stat-label">Próximos 7 dias</div><div class="stat-value" style="color:${overdue.length ? 'var(--danger)' : 'inherit'}">${next7.length}</div><div class="stat-sub">${overdue.length ? overdue.length + ' etapa(s) passaram' : 'etapas marcadas'}</div></div>
+      <div class="stat-card"><div class="stat-label">Passaram da inscrição</div><div class="stat-value">${applied ? Math.round(advanced / applied * 100) + '%' : '—'}</div><div class="stat-sub">${advanced} de ${applied} avançaram</div></div>
+    </div>
+    <div class="tabs" style="max-width:320px">
+      <button class="tab ${_pipeView === 'board' ? 'active' : ''}" onclick="_pipeView='board';renderPipeline()">Em andamento</button>
+      <button class="tab ${_pipeView === 'closed' ? 'active' : ''}" onclick="_pipeView='closed';renderPipeline()">Encerradas (${closed.length})</button>
+    </div>
+    ${apps.length === 0 ? `<div class="card" style="text-align:center;padding:32px 20px">
+        <div style="font-size:2rem">🎯</div>
+        <div class="font-semibold mt-2">Todos os seus processos seletivos num só lugar</div>
+        <div class="text-sm text-muted mt-2" style="max-width:440px;margin:8px auto 16px">Cadastre cada programa de trainee ou vaga, marque a próxima etapa e a data, e use o "Preparar" antes de testes, dinâmicas e painéis.</div>
+        <button class="btn btn-primary" onclick="openApplicationModal()">Cadastrar a primeira candidatura</button>
+      </div>`
+      : _pipeView === 'board' ? board : `<div class="card">${closedList}</div>`}
+  `;
+}
+
+function openApplicationModal(id, mode) {
+  const a = id ? (STATE.applications || []).find(x => x.id === id) : null;
+  _ensureModal('modal-application', 'Candidatura', 560);
+  document.getElementById('modal-application-title').textContent = a ? (mode === 'close' ? 'Resultado da candidatura' : 'Editar candidatura') : 'Nova candidatura';
+  const v = (k) => a && a[k] ? _esc(a[k]) : '';
+  const profGoal = (STATE.goals || []).find(g => /inscri|trainee/i.test(g.title || '') && g.status !== 'done');
+  document.getElementById('modal-application-body').innerHTML = `
+    <input type="hidden" id="app-id" value="${a ? a.id : ''}">
+    <div class="grid grid-2" style="gap:12px">
+      <div><label class="form-label">Empresa <span style="color:var(--danger)">*</span></label><input id="app-company" class="form-input" value="${v('company')}" placeholder="Ex: Empresa X"></div>
+      <div><label class="form-label">Programa / vaga</label><input id="app-program" class="form-input" value="${v('program')}" placeholder="Ex: Trainee 2027 — Finanças"></div>
+    </div>
+    <div class="grid grid-2" style="gap:12px">
+      <div><label class="form-label">Etapa atual</label><select id="app-stage" class="form-select">${APP_STAGES.map(s => `<option value="${s.id}" ${(a ? a.stage : 'interesse') === s.id ? 'selected' : ''}>${s.icon} ${s.label}</option>`).join('')}</select></div>
+      <div><label class="form-label">Inscrição até</label><input id="app-deadline" type="date" class="form-input" value="${v('deadline')}"></div>
+    </div>
+    <div class="grid grid-2" style="gap:12px">
+      <div><label class="form-label">Próxima etapa</label><input id="app-nextstep" class="form-input" value="${v('nextStep')}" placeholder="Ex: Painel com liderança"></div>
+      <div><label class="form-label">Data da próxima etapa</label><input id="app-nextdate" type="date" class="form-input" value="${v('nextDate')}"></div>
+    </div>
+    <div><label class="form-label">Link do edital / portal</label><input id="app-link" class="form-input" value="${v('link')}" placeholder="https://..."></div>
+    <div><label class="form-label">Meta relacionada</label><select id="app-goal" class="form-select">${_appGoalOptions(a ? a.goalId : (profGoal ? profGoal.id : ''))}</select></div>
+    <div><label class="form-label">Notas <span class="text-xs text-muted">(login do portal NÃO — só o que ajuda a se preparar)</span></label><textarea id="app-notes" rows="3" class="form-input" style="resize:vertical">${a ? _esc(a.notes || '') : ''}</textarea></div>
+    ${a && (a.history || []).length ? `<div class="text-xs text-muted"><strong>Histórico:</strong> ${(a.history || []).map(h => `${(APP_STAGES.find(s => s.id === h.stage) || {}).label || h.stage} (${formatDate(h.date)})`).join(' → ')}</div>` : ''}
+    ${a ? `<div style="border-top:1px solid var(--border);padding-top:12px">
+      <label class="form-label">Encerrar candidatura</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${Object.entries(APP_OUTCOMES).map(([k, l]) => `<button class="btn btn-sm ${a.outcome === k ? 'btn-primary' : 'btn-ghost'}" style="border:1px solid var(--border)" onclick="closeApplication('${a.id}','${k}')">${l}</button>`).join('')}
+      ${a.outcome ? `<button class="btn btn-ghost btn-sm" onclick="closeApplication('${a.id}','')">Reabrir</button>` : ''}</div></div>` : ''}
+  `;
+  document.getElementById('modal-application-footer').innerHTML = `
+    ${a ? `<button class="btn btn-ghost" style="color:var(--danger);margin-right:auto" onclick="deleteApplication('${a.id}')">Excluir</button>` : ''}
+    ${a && a.nextDate ? `<button class="btn btn-ghost" onclick="applicationToAgenda('${a.id}')">📅 Agenda</button>` : ''}
+    <button class="btn btn-ghost" onclick="closeModal('modal-application')">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveApplication()">Salvar</button>`;
+  openModal('modal-application');
+  if (mode === 'close') setTimeout(() => { const el = document.querySelector('#modal-application-body [onclick*="closeApplication"]'); if (el) el.scrollIntoView({ block: 'center' }); }, 50);
+}
+
+function saveApplication() {
+  const company = document.getElementById('app-company').value.trim();
+  if (!company) { toast('Informe a empresa.', true); return; }
+  if (!STATE.applications) STATE.applications = [];
+  const id = document.getElementById('app-id').value;
+  const stage = document.getElementById('app-stage').value;
+  const existing = id ? STATE.applications.find(x => x.id === id) : null;
+  const a = existing || { id: uid(), created: Date.now(), history: [] };
+  if (!existing || existing.stage !== stage) a.history = [...(a.history || []), { stage, date: todayStr() }];
+  Object.assign(a, {
+    company, stage,
+    program: document.getElementById('app-program').value.trim(),
+    deadline: document.getElementById('app-deadline').value,
+    nextStep: document.getElementById('app-nextstep').value.trim(),
+    nextDate: document.getElementById('app-nextdate').value,
+    link: document.getElementById('app-link').value.trim(),
+    goalId: document.getElementById('app-goal').value,
+    notes: document.getElementById('app-notes').value
+  });
+  if (!existing) STATE.applications.push(a);
+  save();
+  closeModal('modal-application');
+  renderPipeline();
+  toast(existing ? 'Candidatura atualizada' : '🎯 Candidatura adicionada');
+}
+
+function moveApplication(id, dir) {
+  const a = (STATE.applications || []).find(x => x.id === id);
+  if (!a) return;
+  const i = Math.min(APP_STAGES.length - 1, Math.max(0, _appStageIdx(a) + dir));
+  if (APP_STAGES[i].id === a.stage) return;
+  a.stage = APP_STAGES[i].id;
+  a.history = [...(a.history || []), { stage: a.stage, date: todayStr() }];
+  if (dir > 0) { a.nextStep = ''; a.nextDate = ''; }
+  save();
+  renderPipeline();
+  if (dir > 0) {
+    toast(`${APP_STAGES[i].icon} ${a.company}: ${APP_STAGES[i].label}`);
+    setTimeout(() => openApplicationModal(id), 250); // já pede a próxima etapa/data
+  }
+}
+
+function closeApplication(id, outcome) {
+  const a = (STATE.applications || []).find(x => x.id === id);
+  if (!a) return;
+  a.outcome = outcome || null;
+  a.closedAt = outcome ? Date.now() : null;
+  save();
+  closeModal('modal-application');
+  renderPipeline();
+  if (outcome === 'aprovada') toast('🎉 Parabéns! Que tal registrar essa conquista na Caderneta de Performance?');
+  else if (outcome) toast('Candidatura encerrada. Cada processo é treino para o próximo.');
+}
+
+function deleteApplication(id) {
+  if (!confirm('Excluir esta candidatura?')) return;
+  STATE.applications = (STATE.applications || []).filter(x => x.id !== id);
+  save(); closeModal('modal-application'); renderPipeline();
+}
+
+function applicationToAgenda(id) {
+  const a = (STATE.applications || []).find(x => x.id === id);
+  if (!a || !a.nextDate) return;
+  closeModal('modal-application');
+  quickAddEventDay(a.nextDate, 9);
+  const t = document.getElementById('event-title');
+  if (t) t.value = `${a.nextStep || 'Etapa'} | ${a.company}${a.program ? ' — ' + a.program : ''}`;
+}
+
+function openPrepModal(id) {
+  const a = (STATE.applications || []).find(x => x.id === id);
+  if (!a) return;
+  _ensureModal('modal-prep', 'Preparar', 600);
+  const st = APP_STAGES[_appStageIdx(a)];
+  const items = APP_PREP[st.id] || [];
+  const done = (a.prep && a.prep[st.id]) || {};
+  const cases = [...(STATE.performanceLogs || [])]
+    .sort((x, y) => (y.impact === 'alto') - (x.impact === 'alto') || (y.date || '').localeCompare(x.date || ''))
+    .slice(0, 4);
+  document.getElementById('modal-prep-title').textContent = `${st.icon} Preparar: ${a.company} — ${st.label}`;
+  document.getElementById('modal-prep-body').innerHTML = `
+    ${a.nextDate ? `<div class="text-sm" style="background:var(--surface2);padding:8px 12px;border-radius:8px">▸ ${_esc(a.nextStep || st.label)} · <strong>${formatDate(a.nextDate)}</strong> (${_whenLabel(a.nextDate)})</div>` : ''}
+    <div>
+      <div class="font-semibold mb-2">Checklist desta etapa</div>
+      ${items.map((t, i) => `<label style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;cursor:pointer">
+        <input type="checkbox" ${done[i] ? 'checked' : ''} onchange="togglePrep('${a.id}','${st.id}',${i},this.checked)" style="margin-top:3px;width:16px;height:16px">
+        <span class="text-sm" style="${done[i] ? 'text-decoration:line-through;color:var(--text3)' : ''}">${t}</span></label>`).join('')}
+      <div class="text-xs text-muted mt-2">${Object.values(done).filter(Boolean).length} de ${items.length} feitos</div>
+    </div>
+    <div>
+      <div class="font-semibold mb-2">Seus cases para contar (STAR)</div>
+      ${cases.length ? cases.map(l => `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+          <div class="text-xs text-muted">${_esc(l.competency || '')}${l.impact === 'alto' ? ' · 🔥 alto impacto' : ''}</div>
+          ${l.context ? `<div class="text-sm mt-1"><strong>Situação:</strong> ${_esc(l.context)}</div>` : ''}
+          <div class="text-sm mt-1"><strong>Ação:</strong> ${_esc(l.what)}</div>
+          ${l.result ? `<div class="text-sm mt-1"><strong>Resultado:</strong> ${_esc(l.result)}</div>` : ''}
+        </div>`).join('')
+        : `<div class="text-sm text-muted">Sua Caderneta de Performance ainda está vazia. Bancas de trainee pedem exemplos concretos — registre 3 entregas com resultado em número e elas aparecem aqui.</div>
+           <button class="btn btn-ghost btn-sm mt-2" style="border:1px solid var(--border)" onclick="closeModal('modal-prep');openPerformanceModal()">◈ Registrar uma entrega agora</button>`}
+    </div>
+    ${a.notes ? `<div><div class="font-semibold mb-1">Suas notas</div><div class="text-sm" style="white-space:pre-wrap">${linkify(a.notes)}</div></div>` : ''}
+    ${a.link ? `<div class="text-sm">🔗 ${linkify(a.link)}</div>` : ''}
+  `;
+  document.getElementById('modal-prep-footer').innerHTML = `<button class="btn btn-primary" onclick="closeModal('modal-prep')">Fechar</button>`;
+  openModal('modal-prep');
+}
+
+function togglePrep(id, stage, idx, val) {
+  const a = (STATE.applications || []).find(x => x.id === id);
+  if (!a) return;
+  a.prep = a.prep || {}; a.prep[stage] = { ...(a.prep[stage] || {}), [idx]: val };
+  save();
+  openPrepModal(id);
+}
+
+// ───────────────────────── ESTANTE DE LEITURA ─────────────────────────
+const BOOK_STATUS = [
+  { id: 'lendo',   label: 'Lendo agora', icon: '📖' },
+  { id: 'quero',   label: 'Quero ler',   icon: '🔖' },
+  { id: 'lido',    label: 'Lidos',       icon: '✅' },
+  { id: 'pausado', label: 'Pausados',    icon: '⏸' }
+];
+let _bookFilter = 'all';
+
+function _normTitle(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
+
+// "Título", de Autor. | "Título", Autor. resto | Título, de Autor | Título de Nome Sobrenome | Título
+function _authorEnd(tail) {
+  // fim do autor = primeiro ponto depois de uma palavra com 3+ letras (ignora iniciais: "C. J. Tudor", "R.M. Gray")
+  const re = /\.(?=\s|$)/g; let m;
+  while ((m = re.exec(tail))) {
+    const before = tail.slice(0, m.index).split(/[\s.]+/).pop() || '';
+    if (before.replace(/[^A-Za-zÀ-ÿ]/g, '').length >= 3) return m.index;
+  }
+  return -1;
+}
+function parseBookText(raw) {
+  let s = String(raw || '').trim().replace(/^[•\-\*\u2022]\s*/, '');
+  let title = '', author = '', rest = '';
+  const q = s.match(/^["“”']+\s*(.+?)\s*["“”']+\s*,?\s*(.*)$/);
+  if (q) {
+    title = q[1];
+    const tail = q[2].replace(/^de\s+/i, '');
+    const end = _authorEnd(tail);
+    author = (end >= 0 ? tail.slice(0, end) : tail).trim();
+    rest = end >= 0 ? tail.slice(end + 1).trim() : '';
+  } else {
+    const m = s.match(/^(.+?),\s*de\s+(.+?)\.?$/i)
+           || s.match(/^(.+?)\s+de\s+([A-ZÀ-Ú][\wÀ-ÿ.]*\s+[A-ZÀ-Ú][\wÀ-ÿ.]*(?:\s+[A-ZÀ-Ú][\wÀ-ÿ.]*)*)\.?$/);
+    if (m) { title = m[1]; author = m[2]; } else title = s.replace(/\.$/, '');
+  }
+  title = title.replace(/^["“”']+|["“”']+$/g, '').trim();
+  author = author.replace(/\.$/, '').trim();
+  if (author.length > 60) { rest = (author + ' ' + rest).trim(); author = ''; }
+  return { title, author, rest };
+}
+function looksLikeBook(text) {
+  return /^\s*["“”]{1,2}[^"“”]{2,}["“”]{1,2}\s*,?\s*(de\s+)?[A-ZÀ-Ú][^\s]*/.test(String(text || '')) && !/\d+:\d+/.test(String(text || ''));
+}
+
+function _readingGoal() {
+  const s = STATE.settings || {};
+  if (s.booksGoalId) { const g = (STATE.goals || []).find(x => x.id === s.booksGoalId); if (g) return g; }
+  return (STATE.goals || []).find(g => g.sub === 'rep-livros' || (/livro/i.test(g.unit || '') && g.type === 'quantitative')) || null;
+}
+
+function renderBooks() {
+  const c = document.getElementById('page-books');
+  if (!c) return;
+  const books = STATE.books || [];
+  const goal = _readingGoal();
+  const linked = goal ? books.filter(b => b.status === 'lido' && b.goalId === goal.id).length : 0;
+  let goalHTML = '';
+  if (goal) {
+    const target = Number(goal.target) || 0, cur = Number(goal.current) || 0;
+    const end = new Date((goal.year || new Date().getFullYear()) + '-12-31T12:00:00');
+    const daysLeft = Math.max(1, Math.round((end - new Date()) / 86400000));
+    const remaining = Math.max(0, target - cur);
+    const pace = remaining ? Math.max(1, Math.floor(daysLeft / remaining)) : 0;
+    const titleNum = (goal.title.match(/(\d+)\s*livro/i) || [])[1];
+    const pct = target ? Math.min(100, Math.round(cur / target * 100)) : 0;
+    goalHTML = `<div class="card mb-4" style="border-left:3px solid ${getDimColor('repertorio')}">
+      <div class="section-header" style="margin-bottom:8px">
+        <div class="font-semibold">🎯 ${_esc(goal.title)}</div>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('goals')">Ver meta</button>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span class="stat-value" style="font-size:1.8rem">${cur}</span><span class="text-muted">de ${target} livros</span></div>
+      <div style="height:6px;background:var(--surface2);border-radius:3px;margin:8px 0"><div style="height:100%;width:${pct}%;background:${getDimColor('repertorio')};border-radius:3px"></div></div>
+      <div class="text-sm">${remaining ? `Faltam <strong>${remaining}</strong> até 31/12/${goal.year || new Date().getFullYear()}: <strong>1 livro a cada ${pace} dia${pace > 1 ? 's' : ''}</strong>.` : '🎉 Meta batida!'}</div>
+      ${titleNum && target && Number(titleNum) !== target ? `<div class="text-xs mt-2" style="color:var(--accent-amber)">⚠ O título da meta fala em ${titleNum} livros, mas o alvo está em ${target}. Ajuste em Metas se quiser.</div>` : ''}
+      <div class="text-xs text-muted mt-2">Ao marcar um livro como lido aqui, o progresso da meta sobe sozinho.</div>
+    </div>`;
+  }
+
+  // Sugestões de importação
+  const have = new Set(books.map(b => _normTitle(b.title)));
+  const inboxBooks = (STATE.inbox || []).filter(i => (i.sub === 'rep-livros' || looksLikeBook(i.text)) && looksLikeBook(i.text) && !have.has(_normTitle(parseBookText(i.text).title)));
+  const goalBooks = goal ? String(goal.indicator || '').split('\n').filter(l => /^\s*[•\-\*•]/.test(l)).map(l => parseBookText(l)).filter(b => b.title && !have.has(_normTitle(b.title))) : [];
+  const importHTML = (inboxBooks.length || goalBooks.length) ? `<div class="card mb-4" style="background:var(--surface2)">
+      <div class="font-semibold">📥 Encontrei livros espalhados no app</div>
+      <div class="text-sm text-muted mt-1">${inboxBooks.length ? `${inboxBooks.length} na Inbox (vão para "Quero ler")` : ''}${inboxBooks.length && goalBooks.length ? ' · ' : ''}${goalBooks.length ? `${goalBooks.length} listados na sua meta de leitura (vão para "Lidos", sem mexer na contagem da meta)` : ''}.</div>
+      <button class="btn btn-primary btn-sm mt-3" onclick="importBooksFromApp()">Trazer para a Estante</button>
+    </div>` : '';
+
+  const shown = _bookFilter === 'all' ? BOOK_STATUS : BOOK_STATUS.filter(s => s.id === _bookFilter);
+  const stars = (b) => b.status === 'lido' ? `<span class="book-stars">${[1, 2, 3, 4, 5].map(n => `<span onclick="event.stopPropagation();rateBook('${b.id}',${n})" style="cursor:pointer;color:${(b.rating || 0) >= n ? 'var(--accent-amber)' : 'var(--border)'}">★</span>`).join('')}</span>` : '';
+  const bookRow = (b) => `<div class="item-row" style="cursor:pointer" onclick="openBookModal('${b.id}')">
+      <div style="font-size:1.1rem;width:22px;text-align:center">${(BOOK_STATUS.find(s => s.id === b.status) || {}).icon || '📘'}</div>
+      <div class="item-content">
+        <div class="item-title">${_esc(b.title)}</div>
+        <div class="text-xs text-muted">${b.author ? _esc(b.author) : 'autor não informado'}${b.status === 'lendo' && b.started ? ` · começou ${formatDate(b.started)}` : ''}${b.status === 'lido' && b.finished ? ` · terminou ${formatDate(b.finished)}` : ''}</div>
+      </div>
+      ${stars(b)}
+      <div class="item-actions" style="opacity:1" onclick="event.stopPropagation()">
+        ${b.status === 'quero' || b.status === 'pausado' ? `<button class="btn btn-ghost btn-sm" onclick="setBookStatus('${b.id}','lendo')">Começar</button>` : ''}
+        ${b.status === 'lendo' ? `<button class="btn btn-primary btn-sm" onclick="setBookStatus('${b.id}','lido')">Terminei ✓</button>` : ''}
+      </div>
+    </div>`;
+
+  const lists = shown.map(s => {
+    let list = books.filter(b => b.status === s.id);
+    list.sort((x, y) => s.id === 'lido' ? (y.finished || '').localeCompare(x.finished || '') || (y.created || 0) - (x.created || 0) : (x.created || 0) - (y.created || 0));
+    if (!list.length && _bookFilter === 'all' && s.id === 'pausado') return '';
+    return `<div class="card mb-3">
+      <div class="section-header" style="margin-bottom:6px"><div class="font-semibold">${s.icon} ${s.label} <span class="text-muted" style="font-weight:400">${list.length}</span></div></div>
+      ${list.map(bookRow).join('') || `<div class="text-sm text-muted">${s.id === 'lendo' ? 'Nenhum livro em andamento — escolha um do "Quero ler".' : 'Vazio.'}</div>`}
+    </div>`;
+  }).join('');
+
+  c.innerHTML = `
+    <div class="section-header">
+      <div class="section-title">Estante de Leitura</div>
+      <button class="btn btn-primary btn-sm" onclick="openBookModal()">+ Livro</button>
+    </div>
+    ${goalHTML}${importHTML}
+    <div class="tabs" style="max-width:460px">
+      <button class="tab ${_bookFilter === 'all' ? 'active' : ''}" onclick="_bookFilter='all';renderBooks()">Todos</button>
+      ${BOOK_STATUS.map(s => `<button class="tab ${_bookFilter === s.id ? 'active' : ''}" onclick="_bookFilter='${s.id}';renderBooks()">${s.label.replace(' agora', '')}</button>`).join('')}
+    </div>
+    ${lists}`;
+}
+
+function _bumpReadingGoal(book, delta) {
+  const goal = _readingGoal();
+  if (!goal || book.goalId !== goal.id) return;
+  goal.current = Math.max(0, (Number(goal.current) || 0) + delta);
+  if (goal.status === 'not_started' && delta > 0) goal.status = 'in_progress';
+  goal.updatedAt = Date.now();
+  STATE.goalLog = STATE.goalLog || [];
+  STATE.goalLog.push({ id: uid(), goalId: goal.id, date: todayStr(), value: goal.current, created: Date.now() });
+}
+
+function setBookStatus(id, status) {
+  const b = (STATE.books || []).find(x => x.id === id);
+  if (!b || b.status === status) return;
+  const wasRead = b.status === 'lido';
+  b.status = status;
+  if (status === 'lendo' && !b.started) b.started = todayStr();
+  if (status === 'lido') {
+    b.finished = todayStr();
+    const goal = _readingGoal();
+    if (goal && !b.goalId) b.goalId = goal.id;
+    _bumpReadingGoal(b, +1);
+  } else if (wasRead) {
+    _bumpReadingGoal(b, -1);
+    b.finished = '';
+  }
+  save();
+  renderBooks();
+  if (status === 'lido') {
+    const g = _readingGoal();
+    toast(`✅ "${b.title}" lido${g ? ` — ${g.current}/${g.target} na meta` : ''}. Dê uma nota com as estrelas!`);
+  }
+}
+
+function rateBook(id, n) {
+  const b = (STATE.books || []).find(x => x.id === id);
+  if (!b) return;
+  b.rating = b.rating === n ? 0 : n;
+  save(); renderBooks();
+}
+
+function openBookModal(id) {
+  const b = id ? (STATE.books || []).find(x => x.id === id) : null;
+  _ensureModal('modal-book', 'Livro', 480);
+  document.getElementById('modal-book-title').textContent = b ? 'Editar livro' : 'Novo livro';
+  document.getElementById('modal-book-body').innerHTML = `
+    <input type="hidden" id="book-id" value="${b ? b.id : ''}">
+    <div><label class="form-label">Título <span style="color:var(--danger)">*</span></label><input id="book-title" class="form-input" value="${b ? _esc(b.title) : ''}"></div>
+    <div><label class="form-label">Autor(a)</label><input id="book-author" class="form-input" value="${b ? _esc(b.author || '') : ''}"></div>
+    <div><label class="form-label">Status</label><select id="book-status" class="form-select">${BOOK_STATUS.map(s => `<option value="${s.id}" ${(b ? b.status : 'quero') === s.id ? 'selected' : ''}>${s.icon} ${s.label}</option>`).join('')}</select></div>
+    <div><label class="form-label">Anotações / por que quero ler</label><textarea id="book-notes" rows="3" class="form-input" style="resize:vertical">${b ? _esc(b.notes || '') : ''}</textarea></div>`;
+  document.getElementById('modal-book-footer').innerHTML = `
+    ${b ? `<button class="btn btn-ghost" style="color:var(--danger);margin-right:auto" onclick="deleteBook('${b.id}')">Excluir</button>` : ''}
+    <button class="btn btn-ghost" onclick="closeModal('modal-book')">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveBook()">Salvar</button>`;
+  openModal('modal-book');
+}
+
+function saveBook() {
+  const title = document.getElementById('book-title').value.trim();
+  if (!title) { toast('Informe o título.', true); return; }
+  STATE.books = STATE.books || [];
+  const id = document.getElementById('book-id').value;
+  const status = document.getElementById('book-status').value;
+  let b = id ? STATE.books.find(x => x.id === id) : null;
+  const fields = { title, author: document.getElementById('book-author').value.trim(), notes: document.getElementById('book-notes').value };
+  if (b) {
+    Object.assign(b, fields);
+    closeModal('modal-book');
+    if (b.status !== status) { setBookStatus(b.id, status); return; }
+  } else {
+    b = { id: uid(), created: Date.now(), status: 'quero', ...fields };
+    STATE.books.push(b);
+    closeModal('modal-book');
+    if (status !== 'quero') { setBookStatus(b.id, status); return; }
+  }
+  save(); renderBooks();
+}
+
+function deleteBook(id) {
+  const b = (STATE.books || []).find(x => x.id === id);
+  if (!b || !confirm('Excluir este livro da estante?')) return;
+  if (b.status === 'lido') _bumpReadingGoal(b, -1);
+  STATE.books = STATE.books.filter(x => x.id !== id);
+  save(); closeModal('modal-book'); renderBooks();
+}
+
+function importBooksFromApp() {
+  STATE.books = STATE.books || [];
+  const have = new Set(STATE.books.map(b => _normTitle(b.title)));
+  const goal = _readingGoal();
+  let nInbox = 0, nGoal = 0;
+  (STATE.inbox || []).forEach(i => {
+    if (!looksLikeBook(i.text)) return;
+    const p = parseBookText(i.text);
+    if (!p.title || have.has(_normTitle(p.title))) return;
+    have.add(_normTitle(p.title));
+    STATE.books.push({ id: uid(), created: i.created || Date.now(), title: p.title, author: p.author, notes: p.rest, status: 'quero', source: 'inbox' });
+    i.status = 'processed';
+    nInbox++;
+  });
+  if (goal) String(goal.indicator || '').split('\n').filter(l => /^\s*[•\-\*•]/.test(l)).forEach(l => {
+    const p = parseBookText(l);
+    if (!p.title || have.has(_normTitle(p.title))) return;
+    have.add(_normTitle(p.title));
+    // já contados na meta: entram como lidos vinculados, sem somar de novo
+    STATE.books.push({ id: uid(), created: Date.now(), title: p.title, author: p.author, notes: '', status: 'lido', goalId: goal.id, source: 'meta' });
+    nGoal++;
+  });
+  save(); renderBooks();
+  toast(`📚 ${nInbox + nGoal} livros na estante (${nInbox} da Inbox, ${nGoal} da meta)`);
+}
+
+function inboxToBook(inboxId) {
+  const i = (STATE.inbox || []).find(x => x.id === inboxId);
+  if (!i) return;
+  const p = parseBookText(i.text);
+  STATE.books = STATE.books || [];
+  if (!STATE.books.some(b => _normTitle(b.title) === _normTitle(p.title)))
+    STATE.books.push({ id: uid(), created: i.created || Date.now(), title: p.title, author: p.author, notes: p.rest, status: 'quero', source: 'inbox' });
+  i.status = 'processed';
+  save(); renderInbox();
+  toast(`📚 "${p.title}" foi para a Estante`);
+}
+
+// ───────────────────────── Integrações ─────────────────────────
+// Sinais no dashboard (Inteligência Operacional)
+const _origOpsIntelV329 = opsIntelligence;
+opsIntelligence = function () {
+  const items = _origOpsIntelV329() || [];
+  const extra = [];
+  (STATE.applications || []).filter(a => !a.outcome).forEach(a => {
+    const d = _daysUntil(a.nextDate);
+    if (d !== null && d < 0) extra.push({ sev: 'critical', icon: '🎯', title: `${a.company}: a etapa "${a.nextStep || 'marcada'}" já passou`, detail: 'Atualize o status no Pipeline — avançou, aguardando ou encerrou?', action: "navigate('pipeline')" });
+    else if (d !== null && d <= 3) extra.push({ sev: 'warn', icon: '🎯', title: `${a.nextStep || 'Próxima etapa'} — ${a.company} ${_whenLabel(a.nextDate)}`, detail: 'Abra o checklist e revise seus cases antes.', action: "navigate('pipeline')", quickBtn: { label: 'Preparar', fn: `openPrepModal('${a.id}')` } });
+    const dl = _daysUntil(a.deadline);
+    if (a.stage === 'interesse' && dl !== null && dl >= 0 && dl <= 5) extra.push({ sev: 'warn', icon: '📝', title: `Inscrição ${a.company} fecha ${_whenLabel(a.deadline)}`, detail: a.program || 'Você marcou interesse e ainda não se inscreveu.', action: "navigate('pipeline')" });
+  });
+  const reading = (STATE.books || []).filter(b => b.status === 'lendo');
+  const stale = reading.filter(b => b.started && _daysUntil(b.started) <= -30);
+  if (stale.length) extra.push({ sev: 'info', icon: '📖', title: `"${stale[0].title}" está em leitura há mais de 30 dias`, detail: 'Termine, pause ou troque — livro parado trava a meta de leitura.', action: "navigate('books')" });
+  const order = { critical: 0, warn: 1, suggest: 2, info: 3 };
+  return [...items, ...extra].sort((x, y) => (order[x.sev] ?? 9) - (order[y.sev] ?? 9));
+};
+
+// Botão "Mover para Estante" na Inbox
+const _origRenderInboxV329 = renderInbox;
+renderInbox = function () {
+  _origRenderInboxV329();
+  (STATE.inbox || []).forEach(i => {
+    if (!looksLikeBook(i.text)) return;
+    const row = document.getElementById('inbox-' + i.id);
+    const act = row && row.querySelector('.item-actions');
+    if (act && !act.querySelector('.to-book')) {
+      const b = document.createElement('button');
+      b.className = 'btn-icon to-book'; b.title = 'Mover para a Estante de Leitura'; b.textContent = '📚';
+      b.onclick = (e) => { e.stopPropagation(); inboxToBook(i.id); };
+      act.insertBefore(b, act.firstChild);
+    }
+  });
+};
+
+// Atalhos nas subáreas "Processos Seletivos" e "Livros"
+const _origRenderSubAreaV329 = renderSubAreaPage;
+renderSubAreaPage = function (subId) {
+  _origRenderSubAreaV329(subId);
+  const dim = STATE.dimensions.find(d => (d.subs || []).some(s => s.id === subId));
+  const sub = dim && dim.subs.find(s => s.id === subId);
+  const page = document.getElementById('page-subarea');
+  if (!sub || !page) return;
+  let html = '';
+  if (/processo|seletiv|candidat|trainee/i.test(sub.name)) html = `<div class="card mb-4" style="border-left:3px solid var(--accent);cursor:pointer" onclick="navigate('pipeline')"><div class="font-semibold">🎯 Pipeline de Candidaturas →</div><div class="text-sm text-muted">${(STATE.applications || []).filter(a => !a.outcome).length} candidatura(s) em andamento</div></div>`;
+  if (/livro|leitura/i.test(sub.name)) html = `<div class="card mb-4" style="border-left:3px solid var(--accent);cursor:pointer" onclick="navigate('books')"><div class="font-semibold">📚 Estante de Leitura →</div><div class="text-sm text-muted">${(STATE.books || []).filter(b => b.status === 'lendo').length} lendo · ${(STATE.books || []).filter(b => b.status === 'quero').length} na fila</div></div>`;
+  if (html) {
+    const anchor = page.querySelector('.section-header');
+    if (anchor) anchor.insertAdjacentHTML('afterend', html); else page.insertAdjacentHTML('afterbegin', html);
+  }
+};
+
 boot();
 
 // Keyboard shortcut: 'n' to quick add
@@ -8257,6 +8860,15 @@ function navigateToSub(dimId, subId) {
 }
 
 // ── Barra lateral: dimensões com drill-down expansível (expandir/recolher subáreas) ──
+const SIDEBAR_EXTRAS = {
+  profissional: [
+    { page: 'performance', label: 'Caderneta de Performance', icon: '◈' },
+    { page: 'pipeline', label: 'Pipeline de Candidaturas', icon: '🎯' }
+  ],
+  repertorio: [
+    { page: 'books', label: 'Estante de Leitura', icon: '📚' }
+  ]
+};
 function renderSidebarDims() {
   const box = document.getElementById('sidebar-dims');
   if (!box) return;
@@ -8267,26 +8879,26 @@ function renderSidebarDims() {
       <button class="nav-item sidebar-dim-item" id="nav-dim_${d.id}" onclick="navigate('dim_${d.id}')">
         <span class="dim-dot" style="background:${d.color}"></span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.name}</span>
-        ${(subs.length || d.id === 'profissional') ? `<span class="nav-caret" onclick="event.stopPropagation();toggleDimExpand('${d.id}')" style="cursor:pointer;color:var(--text3);font-size:.7rem;transition:transform .18s;${open?'transform:rotate(90deg)':''}">▸</span>` : ''}
+        ${(subs.length || SIDEBAR_EXTRAS[d.id]) ? `<span class="nav-caret" onclick="event.stopPropagation();toggleDimExpand('${d.id}')" style="cursor:pointer;color:var(--text3);font-size:.7rem;transition:transform .18s;${open?'transform:rotate(90deg)':''}">▸</span>` : ''}
       </button>
-      ${open && (subs.length || d.id === 'profissional') ? `<div class="sidebar-subs" style="animation:slideDown .18s ease">${subs.map(s => `
+      ${open && (subs.length || SIDEBAR_EXTRAS[d.id]) ? `<div class="sidebar-subs" style="animation:slideDown .18s ease">${subs.map(s => `
         <button class="nav-item nav-subitem" onclick="navigateToSub('${d.id}','${s.id}')">
           <span style="width:6px;height:6px;border-radius:50%;background:${d.color};opacity:.55;flex-shrink:0"></span> ${s.name}
-        </button>`).join('')}${d.id === 'profissional' ? `
-        <button class="nav-item nav-subitem" id="nav-performance" onclick="navigate('performance')" style="${currentPage==='performance'?'background:var(--surface2);font-weight:600':''}">
-          <span style="width:6px;height:6px;border-radius:50%;background:${d.color};opacity:.55;flex-shrink:0"></span> Caderneta de Performance
-        </button>` : ''}</div>` : ''}
+        </button>`).join('')}${(SIDEBAR_EXTRAS[d.id]||[]).map(x => `
+        <button class="nav-item nav-subitem" id="nav-${x.page}" onclick="navigate('${x.page}')" style="${currentPage===x.page?'background:var(--surface2);font-weight:600':''}">
+          <span style="flex-shrink:0;font-size:.75rem">${x.icon}</span> ${x.label}
+        </button>`).join('')}</div>` : ''}
     </div>`;
   }).join('');
   if (currentPage && currentPage.startsWith('dim_')) {
     const el = document.getElementById('nav-' + currentPage);
     if (el) el.classList.add('active');
   }
-  if (currentPage === 'performance') {
-    const el = document.getElementById('nav-dim_profissional');
-    if (el) el.classList.add('active');
-    const perfEl = document.getElementById('nav-performance');
-    if (perfEl) perfEl.style.background = 'var(--surface2)';
+  for (const [dimId, list] of Object.entries(SIDEBAR_EXTRAS)) {
+    if (list.some(x => x.page === currentPage)) {
+      const el = document.getElementById('nav-dim_' + dimId);
+      if (el) el.classList.add('active');
+    }
   }
 }
 function toggleDimExpand(id) {
