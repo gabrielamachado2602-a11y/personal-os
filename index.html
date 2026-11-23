@@ -291,6 +291,15 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .pipe-board{max-width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(220px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
 .pipe-col{scroll-snap-align:start;min-height:120px}
 .pipe-card .btn:disabled{opacity:.3;cursor:default}
+.hide-mobile{}
+@media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
+.plan-week{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.plan-day{background:var(--surface2);border-radius:var(--radius);padding:10px;min-height:120px}
+.plan-day-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;gap:6px}
+.plan-busy{font-size:.7rem;color:var(--text3);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-item{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:6px 8px;margin-top:6px}
+.plan-item.late{border-left-color:var(--danger)}
+@media(max-width:768px){.plan-week{grid-template-columns:1fr}}
 .book-stars{font-size:1rem;letter-spacing:1px;white-space:nowrap;margin-right:6px}
 @media(max-width:768px){.pipe-board{grid-auto-columns:82%}}
 
@@ -374,6 +383,12 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
   <button class="nav-item" onclick="navigate('habits')" id="nav-habits">
     <span class="nav-icon">◉</span> Hábitos
   </button>
+  <button class="nav-item" onclick="navigate('planner')" id="nav-planner">
+    <span class="nav-icon">⚡</span> Planejar semana
+  </button>
+  <button class="nav-item" onclick="navigate('insights')" id="nav-insights">
+    <span class="nav-icon">✦</span> Inteligência
+  </button>
 
 
   <div class="sidebar-section" data-sec="dims">Dimensões</div>
@@ -423,6 +438,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
       <span class="topbar-title" id="topbar-title">Command Center</span>
     </div>
     <div class="topbar-actions">
+      <button class="btn btn-ghost btn-sm" id="whatnow-btn" style="border:1px solid var(--border);font-size:.75rem;white-space:nowrap" onclick="openWhatNow()" title="O que eu faço agora?">⚡<span class="hide-mobile"> Agora</span></button>
       <button id="drive-reconnect-chip" class="btn btn-ghost btn-sm" style="display:none;align-items:center;gap:4px;border:1px solid var(--border);font-size:.75rem" onclick="driveSignIn().catch(()=>{})" title="Reconectar ao Google Drive para sincronizar">☁ Reconectar Drive</button>
       <span class="text-xs text-muted" id="topbar-date"></span>
       <button class="btn btn-primary btn-sm" id="topbar-cta" onclick="openQuickAdd()">+ Novo</button>
@@ -623,6 +639,8 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
   <div id="page-performance" class="page hidden"></div>
   <div id="page-pipeline" class="page hidden"></div>
   <div id="page-books" class="page hidden"></div>
+  <div id="page-planner" class="page hidden"></div>
+  <div id="page-insights" class="page hidden"></div>
 
 <!-- SETTINGS PAGE -->
   <div id="page-settings" class="page hidden">
@@ -3169,7 +3187,7 @@ function navigate(page, subId) {
     projects: 'Projetos', tasks: 'Tarefas', agenda: 'Agenda',
     habits: 'Hábitos', energy: 'Energia & Capacidade',
     financial: 'Financial OS', social: 'Redes Sociais', tempo: 'Dimensão de Tempo', settings: 'Configurações',
-    performance: 'Caderneta de Performance', pipeline: 'Pipeline de Candidaturas', books: 'Estante de Leitura'
+    performance: 'Caderneta de Performance', pipeline: 'Pipeline de Candidaturas', books: 'Estante de Leitura', planner: 'Planejar semana', insights: 'Inteligência'
   };
   if (!page.startsWith('dim_') && page !== 'subarea') {
     document.getElementById('topbar-title').textContent = titles[page] || page;
@@ -3228,6 +3246,8 @@ function renderPage(page, subId) {
     case 'performance': renderPerformance(); break;
     case 'pipeline': renderPipeline(); break;
     case 'books': renderBooks(); break;
+    case 'planner': renderPlanner(); break;
+    case 'insights': renderInsights(); break;
   }
 }
 
@@ -4179,7 +4199,7 @@ function renderGoals() {
   const goalCardHTML = (g, color) => {
     const pct = g.type === 'quantitative' && g.target > 0 ? Math.min(100, Math.round((g.current||0)/g.target*100)) : null;
     return `
-          <div class="goal-card" style="border-left:3px solid ${color}">
+          <div class="goal-card" data-goal-id="${g.id}" style="border-left:3px solid ${color}">
             <div class="goal-card-header">
               <div>
                 <div class="goal-title">${g.title}${g.isFinancial?' <span class="badge" style="color:var(--accent-green);border-color:var(--accent-green);font-size:.65rem">Financeira</span>':''}</div>
@@ -7887,7 +7907,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.29.0';
+const APP_VERSION = '3.30.0';
 const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 let _gmailToken = null; let _gmailTokenExpiry = 0; let _gmailEnabled = false;
 
@@ -10490,6 +10510,637 @@ navigate = function(page, subId) {
   if (page === 'inbox' || page === 'dashboard') {
     setTimeout(checkClipboardForInbox, 500);
   }
+};
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.30.0 — CAMADA DE INTELIGÊNCIA (100% local, nada sai do aparelho)
+//  1) O que faço agora?  2) Planejador da semana  3) Previsão de metas
+//  4) Padrões pessoais   5) Inbox que aprende
+// ═══════════════════════════════════════════════════════════
+
+// ── utilidades ──
+function _taskOpen(t) { return t && !['done', 'cancelled', 'canceled', 'archived'].includes(t.status); }
+function _taskEffortH(t) { const e = parseFloat(t && t.effort); return e > 0 ? e : null; }
+function _goalActive(id) { const g = (STATE.goals || []).find(x => x.id === id); return g && !['achieved', 'abandoned', 'done'].includes(g.status) ? g : null; }
+function _hmToMin(s) { const p = String(s || '0:0').split(':').map(Number); return (p[0] || 0) * 60 + (p[1] || 0); }
+function _minToHM(m) { m = Math.max(0, Math.min(1440, Math.round(m))); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; }
+function _fmtDur(min) { min = Math.round(min); if (min < 60) return `${min} min`; const h = Math.floor(min / 60), r = min % 60; return r ? `${h}h${String(r).padStart(2, '0')}` : `${h}h`; }
+function _dateAdd(dStr, n) { const d = new Date(dStr + 'T12:00:00'); d.setDate(d.getDate() + n); return _localDateStr(d); }
+function _nowMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+function _plannerCfg() {
+  const p = (STATE.settings && STATE.settings.planner) || {};
+  return { dayStart: p.dayStart || '07:00', dayEnd: p.dayEnd || '22:00', minBlock: Number(p.minBlock) || 30, buffer: p.buffer != null ? Number(p.buffer) : 10 };
+}
+const _WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+// Intervalos ocupados de um dia (minutos), com deslocamento, já unidos
+function busyIntervals(dStr) {
+  const raw = [];
+  for (const e of getEventsForDate(dStr)) {
+    if (!e.start) continue;
+    const sD = e.start.slice(0, 10), eD = (e.end || e.start).slice(0, 10);
+    const hasTime = e.start.length > 10;
+    let s = !hasTime ? 0 : (sD === dStr ? _hmToMin(e.start.slice(11, 16)) : 0);
+    let en = !hasTime ? 1440 : e.end ? (eD === dStr ? _hmToMin(e.end.slice(11, 16)) : 1440) : s + 60;
+    s -= Number(e.travelBefore) || 0; en += Number(e.travelAfter) || 0;
+    if (en <= s) en = s + 30;
+    raw.push({ s: Math.max(0, s), e: Math.min(1440, en), title: e.title, ev: e });
+  }
+  raw.sort((a, b) => a.s - b.s);
+  return raw;
+}
+function _mergeBusy(list) {
+  const out = [];
+  for (const b of list) { const last = out[out.length - 1]; if (last && b.s <= last.e) last.e = Math.max(last.e, b.e); else out.push({ s: b.s, e: b.e }); }
+  return out;
+}
+function freeBlocks(dStr, fromMin) {
+  const cfg = _plannerCfg();
+  let start = Math.max(_hmToMin(cfg.dayStart), fromMin || 0), end = _hmToMin(cfg.dayEnd);
+  // folga antes e depois de cada compromisso (deslocar, respirar, trocar de contexto)
+  const busy = _mergeBusy(busyIntervals(dStr).map(b => ({ s: b.s - cfg.buffer, e: b.e + cfg.buffer })));
+  const out = []; let cur = start;
+  for (const b of busy) {
+    if (b.e <= cur) continue;
+    if (b.s >= end) break;
+    if (b.s > cur) out.push({ s: cur, e: Math.min(b.s, end) });
+    cur = Math.max(cur, b.e);
+  }
+  if (cur < end) out.push({ s: cur, e: end });
+  return out.filter(b => b.e - b.s >= cfg.minBlock);
+}
+
+// ═════════════ 3) PREVISÃO DE METAS ═════════════
+function goalDeadline(g) {
+  const now = new Date(), y = Number(g.year) || now.getFullYear();
+  const last = (yy, m) => _localDateStr(new Date(yy, m, 0)); // m = 1..12
+  switch (g.horizon) {
+    case 'annual': return `${y}-12-31`;
+    case 'semester': { const s = (g.semester || (now.getMonth() < 6 ? 1 : 2)); return s === 1 ? `${y}-06-30` : `${y}-12-31`; }
+    case 'quarterly': { const q = Number(g.quarter) || Math.floor(now.getMonth() / 3) + 1; return last(y, q * 3); }
+    case 'monthly': { const m = Number(g.month) || now.getMonth() + 1; return last(y, m); }
+    case 'weekly': { const d = new Date(); d.setDate(d.getDate() + ((7 - d.getDay()) % 7)); return _localDateStr(d); }
+    default: return g.deadline || null; // life / multiyear
+  }
+}
+function goalForecast(g) {
+  if (!g || g.isFinancial) return null;
+  const today = todayStr();
+  const deadline = goalDeadline(g);
+  const daysLeft = deadline ? Math.max(0, _daysUntil(deadline)) : null;
+  if (g.type !== 'quantitative' || !(Number(g.target) > 0)) {
+    // qualitativa: quanto tempo sem nenhuma ação ligada
+    const stamps = [];
+    (STATE.tasks || []).filter(t => t.goalId === g.id).forEach(t => { stamps.push(Number(t.completedAt) || 0, Number(t.created) || 0); });
+    (STATE.events || []).filter(e => e.goalId === g.id && e.start && e.start.slice(0, 10) <= today).forEach(e => stamps.push(new Date(e.start).getTime()));
+    (STATE.goalLog || []).filter(l => l.goalId === g.id).forEach(l => stamps.push(new Date(l.date + 'T12:00:00').getTime()));
+    (STATE.applications || []).filter(a => a.goalId === g.id).forEach(a => (a.history || []).forEach(h => stamps.push(new Date(h.date + 'T12:00:00').getTime())));
+    const lastTs = Math.max(0, ...stamps);
+    const idle = lastTs ? Math.floor((Date.now() - lastTs) / 86400000) : Math.floor((Date.now() - (Number(g.created) || Date.now())) / 86400000);
+    const linked = (STATE.tasks || []).filter(t => t.goalId === g.id && _taskOpen(t)).length;
+    return { kind: 'qual', idle, hasAction: !!lastTs, openLinked: linked, deadline, daysLeft, risk: idle >= 21 && g.status !== 'achieved' };
+  }
+  const target = Number(g.target), current = Number(g.current) || 0;
+  const remaining = Math.max(0, target - current);
+  const required = deadline && daysLeft > 0 ? remaining / daysLeft : null; // por dia
+  let pts = (STATE.goalLog || []).filter(l => l.goalId === g.id).map(l => ({ d: l.date, v: Number(l.value) || 0 })).sort((a, b) => a.d.localeCompare(b.d));
+  if (!pts.length || pts[pts.length - 1].d !== today || pts[pts.length - 1].v !== current) pts.push({ d: today, v: current });
+  // ignora "saltos" de ajuste manual (ex.: lançar de uma vez o que já tinha feito antes)
+  let startIdx = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const gap = Math.abs((new Date(pts[i].d) - new Date(pts[i - 1].d)) / 86400000);
+    if (pts[i].v - pts[i - 1].v >= target * 0.25 && gap <= 2) startIdx = i;
+  }
+  const start = pts[startIdx];
+  const span = Math.round((new Date(today) - new Date(start.d)) / 86400000);
+  const gain = current - start.v;
+  const base = { kind: 'quant', target, current, remaining, deadline, daysLeft, required };
+  if (remaining === 0) return { ...base, status: 'done' };
+  if (span < 14) return { ...base, status: 'learning', needDays: 14 - span };
+  if (gain <= 0) return { ...base, status: 'stalled', span, risk: !!deadline };
+  const rate = gain / span;
+  const eta = _dateAdd(today, Math.ceil(remaining / rate));
+  return { ...base, status: 'ok', rate, eta, span, risk: !!(deadline && eta > deadline) };
+}
+function _fmtMonthYear(dStr) { const d = new Date(dStr + 'T12:00:00'); return d.toLocaleString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', ''); }
+function _paceText(perDay, unit) {
+  if (!perDay || perDay <= 0) return '';
+  unit = unit || 'un.';
+  if (perDay >= 1) return `${(Math.round(perDay * 10) / 10).toLocaleString('pt-BR')} ${unit}/dia`;
+  const every = Math.max(1, Math.round(1 / perDay));
+  return every <= 1 ? `1 ${unit}/dia` : `1 a cada ${every} dias`;
+}
+function goalForecastText(g) {
+  const f = goalForecast(g);
+  if (!f) return null;
+  const unit = g.unit || '';
+  if (f.kind === 'qual') {
+    if (!f.hasAction) return { tone: 'warn', text: `Nenhuma ação ligada a esta meta ainda${f.openLinked ? '' : ' — crie a primeira tarefa'}.` };
+    if (f.idle >= 21) return { tone: 'danger', text: `Parada há ${f.idle} dias: nenhuma tarefa, etapa ou registro ligado a ela.` };
+    if (f.idle >= 10) return { tone: 'warn', text: `Última ação há ${f.idle} dias.` };
+    return { tone: 'ok', text: `Em movimento: última ação há ${f.idle === 0 ? 'menos de 1 dia' : f.idle + ' dia' + (f.idle > 1 ? 's' : '')}.` };
+  }
+  const need = f.required ? ` Para o prazo: ${_paceText(f.required, unit)}.` : '';
+  if (f.status === 'done') return { tone: 'ok', text: 'Meta batida.' };
+  if (f.status === 'learning') return { tone: 'info', text: `Aprendendo seu ritmo: mais ${f.needDays} dia${f.needDays > 1 ? 's' : ''} de registros para prever.${need}` };
+  if (f.status === 'stalled') return { tone: 'danger', text: `Sem progresso nos últimos ${f.span} dias.${need}` };
+  const etaTxt = _fmtMonthYear(f.eta);
+  if (f.risk) return { tone: 'danger', text: `No ritmo atual (${_paceText(f.rate, unit)}) termina em ${etaTxt} — depois do prazo (${_fmtMonthYear(f.deadline)}).${need}` };
+  return { tone: 'ok', text: `No ritmo atual (${_paceText(f.rate, unit)}) termina em ${etaTxt}${f.deadline ? ', dentro do prazo' : ''}.` };
+}
+
+// ═════════════ 1) O QUE FAÇO AGORA? ═════════════
+function _scoreTask(t, windowMin, inEvent) {
+  let s = 0; const why = [];
+  const d = _daysUntil(t.due);
+  if (d !== null) {
+    if (d < 0) { s += 40; why.push(`atrasada há ${-d} dia${d === -1 ? '' : 's'}`); }
+    else if (d === 0) { s += 35; why.push('vence hoje'); }
+    else if (d === 1) { s += 28; why.push('vence amanhã'); }
+    else if (d <= 3) { s += 20; why.push(`vence em ${d} dias`); }
+    else if (d <= 7) { s += 12; why.push(`vence em ${d} dias`); }
+    else s += 5;
+  } else s += 3;
+  s += ({ urgent: 25, high: 18, medium: 10, low: 4 })[t.priority] || 8;
+  if (t.priority === 'urgent') why.push('urgente'); else if (t.priority === 'high') why.push('prioridade alta');
+  const g = t.goalId && _goalActive(t.goalId);
+  if (g) {
+    s += 10;
+    const f = goalForecast(g);
+    if (f && f.risk) { s += 6; why.push(`avança "${g.title}", que está em risco`); } else why.push(`avança "${g.title}"`);
+  }
+  const eff = _taskEffortH(t);
+  if (eff) {
+    const em = eff * 60;
+    if (windowMin != null) {
+      if (em <= windowMin) { s += 10; why.push(`leva ${_fmtDur(em)} e cabe no tempo livre`); }
+      else { s -= 12; why.push(`leva ${_fmtDur(em)}, mais que o tempo livre — dá para começar`); }
+    } else if (inEvent && em <= 30) { s += 8; why.push(`rápida (${_fmtDur(em)}), boa para uma pausa`); }
+    if (em <= 15) s += 4;
+  }
+  if (t.status === 'in_progress') { s += 5; why.push('você já começou'); }
+  return { score: s, why };
+}
+function whatNow() {
+  const today = todayStr(), now = _nowMin();
+  const busy = busyIntervals(today);
+  const current = busy.filter(b => b.s <= now && b.e > now).sort((a, b) => (a.e - a.s) - (b.e - b.s))[0] || null;
+  const next = busy.filter(b => b.s > now).sort((a, b) => a.s - b.s)[0] || null;
+  const endDay = _hmToMin(_plannerCfg().dayEnd);
+  const windowMin = current ? null : Math.max(0, (next ? next.s : Math.max(endDay, now)) - now);
+  const cands = [];
+  (STATE.tasks || []).filter(_taskOpen).forEach(t => {
+    const r = _scoreTask(t, windowMin, !!current);
+    cands.push({ kind: 'task', id: t.id, title: t.title, score: r.score, why: r.why });
+  });
+  // Candidaturas com etapa próxima e preparo incompleto
+  (STATE.applications || []).filter(a => !a.outcome && a.nextDate).forEach(a => {
+    const d = _daysUntil(a.nextDate); if (d === null || d < 0 || d > 3) return;
+    const items = (APP_PREP[a.stage] || []).length, done = Object.values((a.prep || {})[a.stage] || {}).filter(Boolean).length;
+    if (done >= items) return;
+    cands.push({ kind: 'prep', id: a.id, title: `Preparar: ${a.nextStep || 'próxima etapa'} — ${a.company}`, score: 30 + (3 - d) * 4, why: [`etapa ${_whenLabel(a.nextDate)}`, `checklist ${done}/${items}`] });
+  });
+  // Leitura em andamento, se houver tempo
+  (STATE.books || []).filter(b => b.status === 'lendo').slice(0, 1).forEach(b => {
+    if (windowMin !== null && windowMin >= 30) cands.push({ kind: 'book', id: b.id, title: `Ler 30 min de "${b.title}"`, score: 9, why: ['você tem tempo livre', 'mantém o ritmo da meta de leitura'] });
+  });
+  cands.sort((a, b) => b.score - a.score);
+  return { current, next, windowMin, picks: cands.slice(0, 3), total: cands.length };
+}
+function whatNowHTML(compact) {
+  const r = whatNow();
+  const ctx = r.current
+    ? `Agora: <strong>${_esc(r.current.title)}</strong> até ${_minToHM(r.current.e)} — sugestões para encaixar numa pausa.`
+    : r.next ? `Você tem <strong>${_fmtDur(r.windowMin)}</strong> livres até <strong>${_esc(r.next.title)}</strong> (${_minToHM(r.next.s)}).`
+    : `Nenhum compromisso pelo resto do dia.`;
+  const act = (p) => p.kind === 'task'
+    ? `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();toggleTask('${p.id}');refreshWhatNow()">Concluir</button>`
+    : p.kind === 'prep' ? `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openPrepModal('${p.id}')">Abrir</button>`
+    : `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();navigate('books')">Estante</button>`;
+  const open = (p) => p.kind === 'task' ? `openTaskModal('${p.id}')` : p.kind === 'prep' ? `openPrepModal('${p.id}')` : `navigate('books')`;
+  const rows = r.picks.length ? r.picks.map((p, i) => `
+    <div class="item-row" style="cursor:pointer;align-items:flex-start" onclick="${open(p)}">
+      <div style="font-family:var(--font-display,serif);font-size:1.3rem;width:22px;color:var(--accent);line-height:1.2">${i + 1}</div>
+      <div class="item-content"><div class="item-title" style="font-size:.92rem">${_esc(p.title)}</div>
+        <div class="text-xs text-muted">${p.why.map(_esc).join(' · ')}</div></div>
+      ${act(p)}
+    </div>`).join('') : '<div class="text-sm text-muted">Nada pendente. Bom momento para avançar uma meta parada ou ler um pouco.</div>';
+  return `<div class="text-sm" style="margin-bottom:8px;color:var(--text2)">${ctx}</div>${rows}`;
+}
+function refreshWhatNow() {
+  setTimeout(() => {
+    const b = document.getElementById('whatnow-body'); if (b) b.innerHTML = whatNowHTML();
+    const m = document.getElementById('modal-whatnow-body'); if (m && !document.getElementById('modal-whatnow').classList.contains('hidden')) m.innerHTML = whatNowHTML();
+  }, 50);
+}
+function openWhatNow() {
+  _ensureModal('modal-whatnow', '⚡ O que eu faço agora?', 560);
+  document.getElementById('modal-whatnow-body').innerHTML = whatNowHTML();
+  document.getElementById('modal-whatnow-footer').innerHTML = `<button class="btn btn-ghost" onclick="closeModal('modal-whatnow');navigate('planner')">Ver a semana</button><button class="btn btn-primary" onclick="closeModal('modal-whatnow')">Fechar</button>`;
+  openModal('modal-whatnow');
+}
+
+// ═════════════ 2) PLANEJADOR DA SEMANA ═════════════
+let _planOffset = 0;
+function planWeek(offset) {
+  const today = todayStr();
+  const t0 = new Date(today + 'T12:00:00');
+  const mon = _dateAdd(today, -((t0.getDay() + 6) % 7) + 7 * (offset || 0));
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = _dateAdd(mon, i);
+    if (d < today) continue;
+    const from = d === today ? Math.ceil((_nowMin() + 10) / 15) * 15 : null;
+    const blocks = freeBlocks(d, from).map(b => ({ ...b }));
+    days.push({ d, blocks, freeMin: blocks.reduce((s, b) => s + b.e - b.s, 0), items: [] });
+  }
+  const weekEnd = _dateAdd(mon, 6);
+  // tarefas já agendadas no futuro ficam de fora
+  const scheduled = new Set((STATE.events || []).filter(e => e.taskId && e.start && e.start.slice(0, 10) >= today).map(e => e.taskId));
+  const open = (STATE.tasks || []).filter(_taskOpen);
+  const pool = open.filter(t => !scheduled.has(t.id) && (!t.due || t.due <= weekEnd || ['urgent', 'high'].includes(t.priority)));
+  const later = open.filter(t => !scheduled.has(t.id) && !pool.includes(t));
+  const sc = (t) => _scoreTask(t, null, false).score;
+  pool.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || sc(b) - sc(a));
+  const unplaced = [], late = [];
+  let taskMin = 0;
+  for (const t of pool) {
+    const eff = _taskEffortH(t);
+    const dur = Math.round((eff || 0.5) * 60);
+    taskMin += dur;
+    let rem = dur, parts = [];
+    const place = (maxDay) => {
+      for (const day of days) {
+        if (rem <= 0) break;
+        if (maxDay && day.d > maxDay) break;
+        for (const b of day.blocks) {
+          if (rem <= 0) break;
+          const len = b.e - b.s;
+          if (len <= 0) continue;
+          const chunk = Math.min(rem, len);
+          if (chunk < rem && chunk < 30) continue;
+          parts.push({ day, s: b.s, e: b.s + chunk });
+          b.s += chunk; rem -= chunk;
+        }
+      }
+    };
+    place(t.due && t.due >= (days[0] || {}).d ? t.due : null);
+    let isLate = false;
+    if (rem > 0 && t.due) { isLate = true; place(null); }
+    parts.forEach((p, i) => p.day.items.push({ task: t, s: p.s, e: p.e, part: parts.length > 1 ? `${i + 1}/${parts.length}` : '', late: isLate && p.day.d > (t.due || ''), assumed: !eff }));
+    if (rem > 0) unplaced.push({ task: t, missing: rem });
+    else if (isLate && parts.some(p => p.day.d > t.due)) late.push(t);
+  }
+  days.forEach(d => d.items.sort((a, b) => a.s - b.s));
+  const freeMin = days.reduce((s, d) => s + d.freeMin, 0);
+  const postpone = (unplaced.length || late.length)
+    ? [...pool].filter(t => !['urgent', 'high'].includes(t.priority)).sort((a, b) => sc(a) - sc(b)).slice(0, 2) : [];
+  return { mon, weekEnd, days, unplaced, late, later, taskMin, freeMin, postpone };
+}
+function renderPlanner() {
+  const c = document.getElementById('page-planner');
+  if (!c) return;
+  const cfg = _plannerCfg();
+  const P = planWeek(_planOffset);
+  const pct = P.freeMin ? Math.min(100, Math.round(P.taskMin / P.freeMin * 100)) : 100;
+  const over = P.unplaced.length || P.late.length;
+  const dayCol = (day) => {
+    const dt = new Date(day.d + 'T12:00:00');
+    const busy = busyIntervals(day.d).filter(b => b.e > _hmToMin(cfg.dayStart) && b.s < _hmToMin(cfg.dayEnd));
+    return `<div class="plan-day">
+      <div class="plan-day-head"><strong>${_WD[dt.getDay()]} ${dt.getDate()}</strong><span class="text-xs text-muted">${_fmtDur(day.freeMin)} livres</span></div>
+      ${busy.slice(0, 6).map(b => `<div class="plan-busy">${_minToHM(Math.max(b.s, 0))}–${_minToHM(b.e)} ${_esc(b.title)}</div>`).join('')}
+      ${day.items.map(it => `<div class="plan-item${it.late ? ' late' : ''}">
+          <div class="text-xs" style="opacity:.75">${_minToHM(it.s)}–${_minToHM(it.e)}${it.part ? ` · parte ${it.part}` : ''}${it.late ? ' · depois do prazo' : ''}</div>
+          <div style="font-size:.85rem;font-weight:500">${_esc(it.task.title)}</div>
+          ${it.assumed ? '<div class="text-xs" style="opacity:.7">sem estimativa: considerei 30 min</div>' : ''}
+          <button class="btn btn-ghost btn-sm" style="padding:1px 6px;margin-top:4px;font-size:.7rem" onclick="planToAgenda('${it.task.id}','${day.d}',${it.s},${it.e})">📅 Agenda</button>
+        </div>`).join('') || `<div class="text-xs text-muted" style="padding:4px 0">${day.freeMin ? 'tempo livre' : 'dia cheio'}</div>`}
+    </div>`;
+  };
+  c.innerHTML = `
+    <div class="section-header">
+      <div class="section-title">Planejar semana</div>
+      ${P.days.some(d => d.items.length) ? `<button class="btn btn-primary btn-sm" onclick="planAllToAgenda()">📅 Pôr tudo na agenda</button>` : ''}
+    </div>
+    <div class="tabs" style="max-width:320px">
+      <button class="tab ${_planOffset === 0 ? 'active' : ''}" onclick="_planOffset=0;renderPlanner()">Esta semana</button>
+      <button class="tab ${_planOffset === 1 ? 'active' : ''}" onclick="_planOffset=1;renderPlanner()">Próxima semana</button>
+    </div>
+    <div class="card mb-4" style="border-left:3px solid ${over ? 'var(--danger)' : pct > 80 ? 'var(--accent-amber)' : 'var(--accent-green,#6A7860)'}">
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">
+        <div><span class="stat-value" style="font-size:1.6rem">${_fmtDur(P.taskMin)}</span> <span class="text-muted text-sm">de tarefas</span></div>
+        <div><span class="stat-value" style="font-size:1.6rem">${_fmtDur(P.freeMin)}</span> <span class="text-muted text-sm">livres na agenda</span></div>
+        <div class="text-sm" style="color:${pct > 80 ? 'var(--accent-amber)' : 'var(--text2)'}">${pct}% do tempo livre</div>
+      </div>
+      <div style="height:6px;background:var(--surface2);border-radius:3px;margin:10px 0"><div style="height:100%;width:${pct}%;background:${over ? 'var(--danger)' : pct > 80 ? 'var(--accent-amber)' : 'var(--accent)'};border-radius:3px"></div></div>
+      ${over ? `<div class="text-sm" style="color:var(--danger)"><strong>Não cabe tudo.</strong> ${P.unplaced.length ? `${P.unplaced.length} tarefa(s) sem espaço${P.unplaced.length ? ': ' + P.unplaced.map(u => `"${_esc(u.task.title)}" (faltam ${_fmtDur(u.missing)})`).join(', ') : ''}.` : ''} ${P.late.length ? `${P.late.length} só cabe(m) depois do prazo.` : ''}</div>
+        ${P.postpone.length ? `<div class="text-sm mt-2">Sugestão: adiar ${P.postpone.map(t => `<strong>${_esc(t.title)}</strong>`).join(' e ')} — menor prioridade e menos ligadas às suas metas.</div>` : ''}`
+      : `<div class="text-sm text-muted">Tudo cabe. As tarefas foram encaixadas pelos prazos e pela prioridade, nos seus horários livres.</div>`}
+      <div class="text-xs text-muted mt-2">Considerando seu dia das
+        <input type="time" value="${cfg.dayStart}" onchange="setPlannerCfg('dayStart',this.value)" style="border:1px solid var(--border);border-radius:4px;padding:1px 4px;background:var(--surface);color:var(--text)"> às
+        <input type="time" value="${cfg.dayEnd}" onchange="setPlannerCfg('dayEnd',this.value)" style="border:1px solid var(--border);border-radius:4px;padding:1px 4px;background:var(--surface);color:var(--text)">, descontando compromissos e deslocamentos da Agenda.</div>
+    </div>
+    <div class="plan-week">${P.days.map(dayCol).join('')}</div>
+    ${P.later.length ? `<div class="text-xs text-muted mt-3">Fora desta semana (prazo depois de ${formatDate(P.weekEnd)}): ${P.later.map(t => _esc(t.title)).join(' · ')}</div>` : ''}
+  `;
+}
+function setPlannerCfg(k, v) {
+  STATE.settings.planner = { ..._plannerCfg(), [k]: v };
+  save(); renderPlanner();
+}
+function _planEvent(taskId, dStr, s, e) {
+  const t = (STATE.tasks || []).find(x => x.id === taskId);
+  if (!t) return null;
+  const start = `${dStr}T${_minToHM(s)}`, end = `${dStr}T${_minToHM(e)}`;
+  if ((STATE.events || []).some(x => x.taskId === taskId && x.start === start)) return null;
+  const ev = { id: uid(), title: `⚡ ${t.title}`, start, end, location: '', notes: 'Bloco de foco criado pelo Planejador da semana.', recurrence: 'none', dim: t.dim || '', sub: t.sub || '', goalId: t.goalId || '', taskId, created: Date.now() };
+  STATE.events.push(ev);
+  return ev;
+}
+function planToAgenda(taskId, dStr, s, e) {
+  if (_planEvent(taskId, dStr, s, e)) { save(); toast('📅 Bloco de foco adicionado à agenda'); }
+  renderPlanner();
+}
+function planAllToAgenda() {
+  const P = planWeek(_planOffset);
+  let n = 0;
+  P.days.forEach(d => d.items.forEach(it => { if (_planEvent(it.task.id, d.d, it.s, it.e)) n++; }));
+  save(); renderPlanner();
+  toast(n ? `📅 ${n} bloco(s) de foco adicionados à agenda` : 'Tudo já está na agenda.');
+}
+
+// ═════════════ 4) PADRÕES PESSOAIS ═════════════
+const PATTERN_MIN_WEEKS = 6;
+function _weekKey(dStr) { const d = new Date(dStr + 'T12:00:00'); return _dateAdd(dStr, -((d.getDay() + 6) % 7)); }
+function weeklyDataset() {
+  const curWeek = _weekKey(todayStr());
+  const dates = [];
+  (STATE.habitLogs || []).forEach(l => l.date && dates.push(l.date));
+  (STATE.tasks || []).forEach(t => t.completedAt && dates.push(_localDateStr(new Date(Number(t.completedAt)))));
+  (STATE.transactions || []).forEach(t => t.date && dates.push(t.date));
+  if (!dates.length) return [];
+  const first = _weekKey(dates.sort()[0]);
+  const weeks = [];
+  for (let w = first; w < curWeek; w = _dateAdd(w, 7)) weeks.push({ w, habits: {}, tasksDone: 0, spend: 0, food: 0 });
+  const idx = Object.fromEntries(weeks.map((x, i) => [x.w, i]));
+  (STATE.habitLogs || []).forEach(l => { const i = idx[_weekKey(l.date)]; if (i !== undefined && (l.done === true || l.done === 'true' || l.done === 1 || l.value > 0)) weeks[i].habits[l.habitId] = (weeks[i].habits[l.habitId] || 0) + 1; });
+  (STATE.tasks || []).forEach(t => { if (!t.completedAt) return; const i = idx[_weekKey(_localDateStr(new Date(Number(t.completedAt))))]; if (i !== undefined) weeks[i].tasksDone++; });
+  (STATE.transactions || []).forEach(t => { if (t.type !== 'expense' || (t.status && t.status !== 'realizado')) return; const i = idx[_weekKey(t.date)]; if (i === undefined) return; const v = Math.abs(Number(t.amount) || 0); weeks[i].spend += v; if (t.category === 'alimentacao') weeks[i].food += v; });
+  return weeks;
+}
+function personalPatterns() {
+  const weeks = weeklyDataset();
+  if (weeks.length < PATTERN_MIN_WEEKS) return { learning: true, weeks: weeks.length, need: PATTERN_MIN_WEEKS, ready: _dateAdd(_weekKey(todayStr()), 7 * (PATTERN_MIN_WEEKS - weeks.length)) };
+  const findings = [];
+  const fmtN = (v, money) => money ? 'R$ ' + Math.round(v).toLocaleString('pt-BR') : (Math.round(v * 10) / 10).toLocaleString('pt-BR');
+  const outcomes = [
+    { k: 'tasksDone', label: 'tarefas concluídas', money: false, goodUp: true },
+    { k: 'spend', label: 'de gastos', money: true, goodUp: false },
+    { k: 'food', label: 'em alimentação', money: true, goodUp: false }
+  ];
+  (STATE.habits || []).filter(h => h.active !== false).forEach(h => {
+    const tgt = h.frequency === 'daily' ? 5 : Math.max(1, Number(h.target) || 1);
+    const hit = weeks.filter(w => (w.habits[h.id] || 0) >= tgt), miss = weeks.filter(w => (w.habits[h.id] || 0) < tgt);
+    if (hit.length < 2 || miss.length < 2) return;
+    outcomes.forEach(o => {
+      const a = hit.reduce((s, w) => s + w[o.k], 0) / hit.length, b = miss.reduce((s, w) => s + w[o.k], 0) / miss.length;
+      if (a + b === 0) return;
+      const diff = b ? (a - b) / b : 1;
+      if (Math.abs(diff) < 0.2) return;
+      findings.push({ strength: Math.abs(diff) * Math.min(hit.length, miss.length),
+        text: `Nas ${hit.length} semanas em que você cumpriu <strong>${_esc(h.title)}</strong> (${h.frequency === 'daily' ? '5+ dias' : tgt + '+ vezes'}), teve em média <strong>${fmtN(a, o.money)}</strong> ${o.label}; nas outras ${miss.length}, ${fmtN(b, o.money)} (${diff > 0 ? '+' : ''}${Math.round(diff * 100)}%).`,
+        good: (diff > 0) === o.goodUp });
+    });
+  });
+  // Dia da semana e período mais produtivos
+  const done = (STATE.tasks || []).filter(t => t.completedAt).map(t => new Date(Number(t.completedAt)));
+  if (done.length >= 15) {
+    const byWd = Array(7).fill(0); done.forEach(d => byWd[d.getDay()]++);
+    const best = byWd.indexOf(Math.max(...byWd));
+    findings.push({ strength: 1, good: true, text: `Seu dia mais produtivo é <strong>${['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][best]}</strong>: ${Math.round(byWd[best] / done.length * 100)}% das ${done.length} tarefas concluídas.` });
+    const per = { manhã: 0, tarde: 0, noite: 0 }; done.forEach(d => { const h = d.getHours(); per[h < 12 ? 'manhã' : h < 18 ? 'tarde' : 'noite']++; });
+    const bp = Object.entries(per).sort((a, b) => b[1] - a[1])[0];
+    findings.push({ strength: 0.9, good: true, text: `Você conclui mais tarefas de <strong>${bp[0]}</strong> (${Math.round(bp[1] / done.length * 100)}%). Reserve esse período para o que exige foco.` });
+  }
+  findings.sort((a, b) => b.strength - a.strength);
+  return { learning: false, weeks: weeks.length, findings: findings.slice(0, 6) };
+}
+
+// ═════════════ 5) INBOX QUE APRENDE (Naive Bayes local) ═════════════
+const _NB_STOP = new Set('a o e de da do das dos em no na nos nas um uma uns umas para pra por com sem que se ao aos as os eu meu minha meus minhas sobre ate mais muito pelo pela isso esse essa este esta the and of'.split(' '));
+function _nbTok(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(w => w.length > 2 && !_NB_STOP.has(w) && !/^\d+$/.test(w)).map(w => w.length > 4 && /[^s]s$/.test(w) ? w.slice(0, -1) : w); }
+function _nbTrain(docs) {
+  const m = { classes: {}, tok: {}, tot: {}, vocab: new Set(), n: docs.length };
+  docs.forEach(({ tokens, label }) => {
+    if (!label || !tokens.length) return;
+    m.classes[label] = (m.classes[label] || 0) + 1;
+    m.tok[label] = m.tok[label] || {};
+    tokens.forEach(t => { m.tok[label][t] = (m.tok[label][t] || 0) + 1; m.tot[label] = (m.tot[label] || 0) + 1; m.vocab.add(t); });
+  });
+  return m;
+}
+function _nbPredict(m, tokens) {
+  const labels = Object.keys(m.classes);
+  if (!labels.length || !tokens.length) return null;
+  const known = tokens.filter(t => m.vocab.has(t));
+  if (!known.length) return null;
+  const V = m.vocab.size, N = Object.values(m.classes).reduce((a, b) => a + b, 0);
+  // suavização pequena (0,1) e prior atenuado: com poucos exemplos, palavras vistas na categoria pesam mais que o tamanho da categoria
+  const A = 0.1;
+  const scores = labels.map(l => {
+    let s = 0.5 * Math.log(m.classes[l] / N);
+    known.forEach(t => { s += Math.log(((m.tok[l][t] || 0) + A) / ((m.tot[l] || 0) + A * V)); });
+    return [l, s];
+  });
+  const mx = Math.max(...scores.map(x => x[1]));
+  const ex = scores.map(([l, s]) => [l, Math.exp(s - mx)]);
+  const Z = ex.reduce((a, x) => a + x[1], 0);
+  ex.sort((a, b) => b[1] - a[1]);
+  return { label: ex[0][0], p: ex[0][1] / Z, p2: ex[1] ? ex[1][1] / Z : 0, support: m.classes[ex[0][0]], known: known.length };
+}
+let _nbCache = { sig: '', dim: null, type: null, counts: null };
+function inboxModels() {
+  const sig = [(STATE.inbox || []).length, (STATE.tasks || []).length, (STATE.events || []).length, (STATE.goals || []).length, (STATE.inbox || []).filter(i => i.dim).length, (STATE.settings.mlStats || {}).total || 0, (STATE.books || []).length, (STATE.habits || []).length, (STATE.dimensions || []).reduce((a, d) => a + (d.subs || []).length, 0)].join('|');
+  if (_nbCache.sig === sig) return _nbCache;
+  const dimDocs = [], typeDocs = [], counts = { inbox: 0, tasks: 0, events: 0, goals: 0 };
+  const lab = (o) => o.dim ? `${o.dim}|${o.sub || ''}` : '';
+  // estrutura da própria usuária: nomes das subáreas (peso 2), hábitos e livros da Estante
+  (STATE.dimensions || []).forEach(d => (d.subs || []).forEach(sb => { const tk = _nbTok(sb.name); dimDocs.push({ tokens: tk, label: `${d.id}|${sb.id}` }, { tokens: tk, label: `${d.id}|${sb.id}` }); }));
+  (STATE.habits || []).forEach(h => { if (h.dim) dimDocs.push({ tokens: _nbTok(h.title + ' ' + (h.desc || '')), label: lab(h) }); });
+  const livros = (STATE.dimensions || []).flatMap(d => (d.subs || []).filter(sb => /livro|leitura/i.test(sb.name)).map(sb => `${d.id}|${sb.id}`))[0];
+  if (livros) (STATE.books || []).forEach(b => dimDocs.push({ tokens: _nbTok('livro ler ' + b.title), label: livros }));
+  (STATE.inbox || []).forEach(i => {
+    const tk = _nbTok(i.text);
+    if (i.dim) { dimDocs.push({ tokens: tk, label: lab(i) }); counts.inbox++; }
+    if (i.type && i.type !== 'pending') typeDocs.push({ tokens: tk, label: i.type });
+  });
+  (STATE.tasks || []).forEach(t => { const tk = _nbTok(t.title + ' ' + (t.desc || '')); if (t.dim) { dimDocs.push({ tokens: tk, label: lab(t) }); counts.tasks++; } typeDocs.push({ tokens: _nbTok(t.title), label: 'task' }); });
+  const seenEv = new Set();
+  (STATE.events || []).forEach(e => { const key = e.title; if (seenEv.has(key)) return; seenEv.add(key); const tk = _nbTok(e.title); if (e.dim) { dimDocs.push({ tokens: tk, label: lab(e) }); counts.events++; } typeDocs.push({ tokens: tk, label: 'event' }); });
+  (STATE.goals || []).forEach(g => { const tk = _nbTok(g.title); if (g.dim) { dimDocs.push({ tokens: tk, label: lab(g) }); counts.goals++; } typeDocs.push({ tokens: tk, label: 'goal' }); });
+  (STATE.inboxRules || []).forEach(r => { if (r.keyword && r.type) typeDocs.push({ tokens: _nbTok(r.keyword), label: r.type }); });
+  _nbCache = { sig, dim: _nbTrain(dimDocs), type: _nbTrain(typeDocs), counts };
+  return _nbCache;
+}
+const _TYPE_LABEL = { task: 'Tarefa', event: 'Compromisso', goal: 'Meta', purchase: 'Compra', idea: 'Ideia', note: 'Nota', contact: 'Contato', content: 'Conteúdo' };
+function suggestInbox(text) {
+  const M = inboxModels(), tk = _nbTok(text);
+  const d = M.dim && _nbPredict(M.dim, tk), t = M.type && _nbPredict(M.type, tk);
+  const out = {};
+  if (d && d.support >= 2 && (d.p >= 0.45 || (d.p >= 0.3 && d.p >= 2 * d.p2))) { const [dim, sub] = d.label.split('|'); out.dim = dim; out.sub = sub; out.pDim = d.p; }
+  if (t && (t.p >= 0.5 || (t.p >= 0.35 && t.p >= 2 * t.p2))) { out.type = t.label; out.pType = t.p; }
+  return (out.dim || out.type) ? out : null;
+}
+function _suggestLabel(s) {
+  const parts = [];
+  if (s.dim) parts.push(getDimName(s.dim) + (s.sub ? ' › ' + getSubName(s.dim, s.sub) : ''));
+  if (s.type) parts.push(_TYPE_LABEL[s.type] || s.type);
+  const p = Math.max(s.pDim || 0, s.pType || 0);
+  return `${parts.join(' · ')} · confiança ${p >= 0.85 ? 'alta' : p >= 0.6 ? 'média' : 'baixa'}`;
+}
+let _inboxSuggestShown = {};
+function applyInboxSuggestion(id) { openInboxProcess(id); }
+
+// ═════════════ PÁGINA "INTELIGÊNCIA" ═════════════
+function renderInsights() {
+  const c = document.getElementById('page-insights');
+  if (!c) return;
+  const goals = (STATE.goals || []).filter(g => !['achieved', 'abandoned', 'done'].includes(g.status));
+  const toneColor = { ok: 'var(--accent-green,#6A7860)', info: 'var(--text3)', warn: 'var(--accent-amber)', danger: 'var(--danger)' };
+  const order = { danger: 0, warn: 1, info: 2, ok: 3 };
+  const fc = goals.map(g => ({ g, f: goalForecastText(g) })).filter(x => x.f).sort((a, b) => order[a.f.tone] - order[b.f.tone]);
+  const pat = personalPatterns();
+  const M = inboxModels();
+  const ml = STATE.settings.mlStats || { hits: 0, total: 0 };
+  const nEx = M.counts.inbox + M.counts.tasks + M.counts.events + M.counts.goals;
+  c.innerHTML = `
+    <div class="section-header"><div class="section-title">Inteligência</div></div>
+    <div class="text-sm text-muted mb-4" style="max-width:640px">Tudo aqui é calculado no seu aparelho, a partir dos seus próprios registros. Nada é enviado para fora.</div>
+
+    <div class="card mb-4">
+      <div class="font-semibold mb-2">🔮 Previsão das metas</div>
+      ${fc.map(({ g, f }) => `<div class="item-row" style="cursor:pointer;align-items:flex-start" onclick="navigate('goals')">
+          <div style="width:4px;align-self:stretch;background:${toneColor[f.tone]};border-radius:2px;min-height:26px"></div>
+          <div class="item-content" style="padding-left:8px"><div class="item-title" style="font-size:.9rem">${_esc(g.title)}${g.type === 'quantitative' && Number(g.target) > 0 ? ` <span class="text-xs text-muted">${g.current || 0}/${g.target} ${_esc(g.unit || '')}</span>` : ''}</div>
+          <div class="text-xs" style="color:${f.tone === 'ok' || f.tone === 'info' ? 'var(--text2)' : toneColor[f.tone]}">${f.text}</div></div></div>`).join('') || '<div class="text-sm text-muted">Nenhuma meta ativa.</div>'}
+      <div class="text-xs text-muted mt-2">Metas numéricas: projeção pelo seu ritmo real (lançamentos de uma vez só não contam como ritmo). Metas qualitativas: tempo desde a última tarefa, etapa ou registro ligado a elas.</div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="font-semibold mb-2">🧭 Padrões pessoais</div>
+      ${pat.learning ? `<div class="text-sm">Coletando dados: <strong>${pat.weeks} de ${pat.need} semanas</strong> completas. Com menos que isso, qualquer "padrão" seria coincidência.</div>
+          <div style="height:6px;background:var(--surface2);border-radius:3px;margin:10px 0"><div style="height:100%;width:${Math.round(pat.weeks / pat.need * 100)}%;background:var(--accent);border-radius:3px"></div></div>
+          <div class="text-xs text-muted">Primeiros padrões por volta de <strong>${formatDate(pat.ready)}</strong>. O que alimenta: marcar hábitos, concluir tarefas no app e lançar gastos.</div>`
+        : pat.findings.length ? pat.findings.map(f => `<div class="item-row" style="align-items:flex-start"><div style="width:22px">${f.good ? '↗' : '↘'}</div><div class="item-content text-sm">${f.text}</div></div>`).join('') + `<div class="text-xs text-muted mt-2">Baseado em ${pat.weeks} semanas. Correlação, não prova de causa — use como pista.</div>`
+        : `<div class="text-sm text-muted">${pat.weeks} semanas analisadas e nenhuma diferença forte (20%+) apareceu ainda.</div>`}
+    </div>
+
+    <div class="card mb-4">
+      <div class="font-semibold mb-2">💡 Inbox que aprende</div>
+      <div class="text-sm">Aprendeu com <strong>${nEx}</strong> exemplos seus: ${M.counts.inbox} itens classificados da Inbox, ${M.counts.tasks} tarefas, ${M.counts.events} compromissos e ${M.counts.goals} metas.</div>
+      <div class="text-sm mt-2">${ml.total ? `Acertou <strong>${ml.hits} de ${ml.total}</strong> sugestões que você revisou (${Math.round(ml.hits / ml.total * 100)}%).` : 'Ainda sem sugestões revisadas. Elas aparecem como 💡 nos itens pendentes da Inbox.'}</div>
+      <div class="text-xs text-muted mt-2">Cada item que você classifica vira exemplo, e as sugestões melhoram sozinhas.</div>
+    </div>`;
+}
+
+// ═════════════ INTEGRAÇÕES ═════════════
+// Dashboard: card "O que faço agora?"
+const _origRenderDashV330 = renderDashboard;
+renderDashboard = function () {
+  _origRenderDashV330();
+  const page = document.getElementById('page-dashboard');
+  if (!page || document.getElementById('whatnow-card')) return;
+  const html = `<div class="card mb-4" id="whatnow-card" style="border-left:3px solid var(--accent)">
+    <div class="section-header" style="margin-bottom:6px"><div class="font-semibold">⚡ O que eu faço agora?</div>
+      <button class="btn btn-ghost btn-sm" onclick="navigate('planner')">Planejar semana →</button></div>
+    <div id="whatnow-body">${whatNowHTML()}</div></div>`;
+  const ops = [...page.querySelectorAll('.card')].find(el => /Inteligência Operacional/.test(el.textContent));
+  if (ops) ops.insertAdjacentHTML('beforebegin', html);
+  else { const h = page.querySelector('.section-header'); if (h) h.insertAdjacentHTML('afterend', html); else page.insertAdjacentHTML('afterbegin', html); }
+};
+
+// Sinais: metas que vão atrasar e semana que não cabe
+const _origOpsIntelV330 = opsIntelligence;
+opsIntelligence = function () {
+  const items = _origOpsIntelV330() || [];
+  (STATE.goals || []).forEach(g => {
+    const f = goalForecast(g);
+    if (f && f.kind === 'quant' && f.status === 'ok' && f.risk) items.push({ sev: 'warn', icon: '🔮', title: `"${g.title}" vai atrasar no ritmo atual`, detail: `Previsão: ${_fmtMonthYear(f.eta)} · prazo ${_fmtMonthYear(f.deadline)}. Precisa de ${_paceText(f.required, g.unit)}.`, action: "navigate('insights')" });
+  });
+  try {
+    const P = planWeek(0);
+    if (P.unplaced.length) items.push({ sev: 'warn', icon: '⚡', title: `A semana não cabe: ${P.unplaced.length} tarefa(s) sem espaço na agenda`, detail: `${_fmtDur(P.taskMin)} de tarefas para ${_fmtDur(P.freeMin)} livres.`, action: "navigate('planner')" });
+  } catch (e) {}
+  const order = { critical: 0, warn: 1, suggest: 2, info: 3 };
+  return items.sort((x, y) => (order[x.sev] ?? 9) - (order[y.sev] ?? 9));
+};
+
+// Metas: linha de previsão em cada card
+const _origRenderGoalsV330 = renderGoals;
+renderGoals = function () {
+  _origRenderGoalsV330();
+  const toneColor = { ok: 'var(--text2)', info: 'var(--text3)', warn: 'var(--accent-amber)', danger: 'var(--danger)' };
+  document.querySelectorAll('#goals-list .goal-card[data-goal-id]').forEach(card => {
+    const g = (STATE.goals || []).find(x => x.id === card.dataset.goalId);
+    const f = g && goalForecastText(g);
+    if (!f || card.querySelector('.goal-forecast')) return;
+    card.insertAdjacentHTML('beforeend', `<div class="goal-forecast text-xs mt-2" style="color:${toneColor[f.tone]}">🔮 ${f.text}</div>`);
+  });
+};
+
+// Inbox: sugestão 💡 nos pendentes
+const _origRenderInboxV330 = renderInbox;
+renderInbox = function () {
+  _origRenderInboxV330();
+  (STATE.inbox || []).forEach(i => {
+    if (i.status !== 'pending' || i.dim) return;
+    const s = suggestInbox(i.text);
+    const row = document.getElementById('inbox-' + i.id);
+    const meta = row && row.querySelector('.item-meta');
+    if (!s || !meta || meta.querySelector('.ai-chip')) return;
+    meta.insertAdjacentHTML('beforeend', `<span class="chip ai-chip" style="cursor:pointer;border-color:var(--accent);color:var(--accent)" title="Sugestão aprendida com as suas classificações" onclick="event.stopPropagation();applyInboxSuggestion('${i.id}')">💡 ${_esc(_suggestLabel(s))}</span>`);
+  });
+};
+const _origOpenInboxProcessV330 = openInboxProcess;
+openInboxProcess = function (id) {
+  _origOpenInboxProcessV330(id);
+  const item = (STATE.inbox || []).find(i => i.id === id);
+  const modal = document.getElementById('modal-inbox-process');
+  if (!item || !modal) return;
+  let hint = document.getElementById('inbox-ai-hint');
+  if (!hint) {
+    hint = document.createElement('div'); hint.id = 'inbox-ai-hint'; hint.className = 'text-xs';
+    hint.style.cssText = 'margin:6px 0 10px;color:var(--accent)';
+    const txt = document.getElementById('inbox-process-text');
+    if (txt) txt.insertAdjacentElement('afterend', hint);
+  }
+  hint.textContent = '';
+  delete _inboxSuggestShown[id];
+  if (item.dim) return;
+  const s = suggestInbox(item.text);
+  if (!s) return;
+  if (s.dim) {
+    const ds = document.getElementById('inbox-process-dim');
+    if (ds) { ds.value = s.dim; populateSubSelect('inbox-process-sub', 'inbox-process-dim', s.sub || ''); }
+  }
+  if (s.type && (!item.type || item.type === 'pending')) { const ts = document.getElementById('inbox-process-type'); if (ts) ts.value = s.type; }
+  hint.textContent = `💡 Preenchi com o que aprendi das suas classificações: ${_suggestLabel(s)}. Confira e ajuste se precisar.`;
+  _inboxSuggestShown[id] = s;
+};
+const _origProcessInboxItemV330 = processInboxItem;
+processInboxItem = function () {
+  const id = document.getElementById('inbox-process-id').value;
+  const s = _inboxSuggestShown[id];
+  if (s) {
+    const dim = document.getElementById('inbox-process-dim').value, sub = document.getElementById('inbox-process-sub').value, type = document.getElementById('inbox-process-type').value;
+    const hit = (!s.dim || (s.dim === dim && (s.sub || '') === (sub || ''))) && (!s.type || s.type === type);
+    const ml = STATE.settings.mlStats || { hits: 0, total: 0 };
+    STATE.settings.mlStats = { hits: ml.hits + (hit ? 1 : 0), total: ml.total + 1 };
+    delete _inboxSuggestShown[id];
+  }
+  _origProcessInboxItemV330();
 };
 
 </script>
