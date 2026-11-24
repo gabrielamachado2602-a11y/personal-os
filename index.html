@@ -7967,7 +7967,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.38.0';
+const APP_VERSION = '3.39.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -8944,9 +8944,6 @@ const SIDEBAR_EXTRAS = {
   profissional: [
     { page: 'performance', label: 'Caderneta de Performance', icon: '◈', sub: 'prof-prof', subName: /^profissional$/i },
     { page: 'pipeline', label: 'Pipeline de Candidaturas', icon: '🎯', sub: 'prof-prof', subName: /^profissional$/i }
-  ],
-  repertorio: [
-    { page: 'books', label: 'Estante de Leitura', icon: '📚' }
   ]
 };
 function _extraSubId(dim, x) {
@@ -13846,6 +13843,42 @@ renderSubAreaPage = function (subId) {
     <div style="display:flex;justify-content:space-between;align-items:center" class="mb-2"><div class="font-semibold">📝 Notas e ideias</div><button class="btn btn-ghost btn-sm" onclick="areaNoteEdit(null,'${subId}')">+ Nota</button></div>
     ${notes.length ? notes.map(n => `<div class="area-note" onclick="if(event.target.closest('a'))return;areaNoteEdit('${n.id}','${subId}')"><span>${_areaNoteIcon(n.type)}</span><div style="flex:1;min-width:0"><div class="area-note-t">${linkify(n.text)}</div><div class="text-xs text-muted">${formatInsertedAt(n.created)}</div></div></div>`).join('') : '<div class="text-sm text-muted">Nada por aqui. Notas, ideias e contatos classificados na Inbox com esta subárea aparecem aqui.</div>'}
   </div>`);
+};
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.39.0 — ESTANTE DE LEITURA DENTRO DA SUBÁREA "LIVROS"
+//  (sem item próprio no menu; navigate('books') abre a subárea Livros)
+// ═══════════════════════════════════════════════════════════
+function _booksSub() {
+  for (const d of STATE.dimensions || []) for (const s of d.subs || []) if (s.id === 'rep-livros') return { dim: d.id, sub: s.id };
+  for (const d of STATE.dimensions || []) for (const s of d.subs || []) if (/livro|leitura/i.test(s.name || '')) return { dim: d.id, sub: s.id };
+  return null;
+}
+const _origNavigateV339 = navigate;
+navigate = function (page) {
+  if (page === 'books') { const b = _booksSub(); if (b) { currentDimId = b.dim; currentSubId = b.sub; return _origNavigateV339.call(this, 'subarea', b.sub); } }
+  return _origNavigateV339.apply(this, arguments);
+};
+const _origRenderBooksV339 = renderBooks;
+renderBooks = function () {
+  const host = document.getElementById('sub-books-host');
+  if (host) host.innerHTML = '';
+  _origRenderBooksV339.apply(this, arguments);
+  const pg = document.getElementById('page-books');
+  if (host && pg && currentPage === 'subarea') { while (pg.firstChild) host.appendChild(pg.firstChild); }
+};
+const _origRenderSubAreaPageV339 = renderSubAreaPage;
+renderSubAreaPage = function (subId) {
+  _origRenderSubAreaPageV339.apply(this, arguments);
+  const b = _booksSub();
+  const page = document.getElementById('page-subarea');
+  if (!b || b.sub !== subId || !page) return;
+  [...page.querySelectorAll('.card')].filter(c => /Estante de Leitura →/.test(c.textContent)).forEach(c => c.remove());
+  const anchor = page.querySelector('.section-header');
+  const hostHTML = '<div id="sub-books-host" class="mb-4"></div>';
+  if (anchor) anchor.insertAdjacentHTML('afterend', hostHTML); else page.insertAdjacentHTML('afterbegin', hostHTML);
+  renderBooks();
 };
 
 </script>
