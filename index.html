@@ -526,6 +526,17 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .sub-extra-card{cursor:pointer;border-left:3px solid var(--accent);margin:0 !important}
 .sub-extra-card:hover{box-shadow:var(--shadow-md)}
 
+
+/* ── transcrição de voz (v3.34.0) ── */
+.voice-btn{align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:1rem;min-width:42px}
+.voice-btn.rec{background:#d93025 !important;color:#fff !important;border-color:#d93025 !important;animation:voicePulse 1.2s ease-in-out infinite}
+@keyframes voicePulse{0%,100%{box-shadow:0 0 0 0 rgba(217,48,37,.45)}50%{box-shadow:0 0 0 7px rgba(217,48,37,0)}}
+.voice-row{display:flex;align-items:center;gap:8px;margin-top:6px}
+.voice-hint{font-size:.76rem;color:var(--text2);margin:4px 0 6px}
+.voice-hint:empty{display:none}
+.voice-hint a{color:var(--accent);cursor:pointer;text-decoration:underline}
+.voice-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#d93025;margin-right:4px;animation:voicePulse 1.2s infinite}
+
 .hide-mobile{}
 @media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
 .plan-week{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -694,12 +705,14 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
     </div>
     <div class="inbox-quick">
       <textarea id="inbox-input" placeholder="Ex: 'dentista dia 20 14h' · 'gastei 50 no mercado' · 'entregar relatório sexta'" rows="2" onkeydown="handleInboxKey(event)"></textarea>
+      <button class="btn btn-ghost voice-btn" data-hint="inbox-voice-hint" onclick="toggleVoice('inbox-input',this)" title="Falar em vez de digitar">🎤</button>
       <label class="btn btn-ghost" style="cursor:pointer;align-self:stretch;display:flex;align-items:center" title="Tirar foto ou anexar arquivo (PNG, PDF, CSV...)">
         📎
         <input type="file" accept="image/*,.pdf,.csv,.txt" style="display:none" onchange="addInboxAttachment(event)">
       </label>
       <button class="btn btn-primary" onclick="addInboxItem()">Capturar</button>
     </div>
+    <div id="inbox-voice-hint" class="voice-hint"></div>
     <div id="inbox-suggestion"></div>
     <div id="inbox-filters" class="flex gap-2 mb-3" style="flex-wrap:wrap">
       <button class="chip active-chip" onclick="filterInbox('all',this)">Todos</button>
@@ -1030,6 +1043,8 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
     </div>
     <div class="form-group">
       <textarea class="form-textarea" id="qa-text" placeholder="O que você precisa registrar?" rows="3"></textarea>
+      <div class="voice-row"><button type="button" class="btn btn-ghost btn-sm voice-btn" data-hint="qa-voice-hint" onclick="toggleVoice('qa-text',this)" title="Falar em vez de digitar">🎤</button><span class="text-xs text-muted">ou fale em vez de digitar</span></div>
+      <div id="qa-voice-hint" class="voice-hint"></div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -3855,6 +3870,7 @@ function cleanCaptureTitle(text) {
 
 function parseCapture(text) {
   if (!text || text.trim().length < 2) return null;
+  text = text.replace(/(\d)\.(\d{3})(?!\d)/g, '$1$2'); // "1.200" → "1200" (milhar)
   const money = parseMoneyPT(text);
   if (money) {
     const desc = cleanCaptureTitle(text) || (money.type==='income'?'Receita':'Despesa');
@@ -7837,7 +7853,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.33.1';
+const APP_VERSION = '3.34.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -12326,6 +12342,161 @@ renderSubAreaPage = function (subId) {
   const anchor = page.querySelector('.section-header');
   if (anchor) anchor.insertAdjacentHTML('afterend', html); else page.insertAdjacentHTML('afterbegin', html);
 };
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.34.0 — TRANSCRIÇÃO DE VOZ NA CAPTURA
+//  1º tenta reconhecer NO APARELHO (processLocally) — o áudio não sai do dispositivo.
+//  Se o navegador só transcreve pela nuvem (Chrome → Google, Safari → Apple), pergunta antes.
+// ═══════════════════════════════════════════════════════════
+const _SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let _voice = null;
+
+// ── fala → formato que o leitor de capturas entende ──
+const _NUM_WORDS = {
+  zero: 0, um: 1, uma: 1, dois: 2, duas: 2, 'três': 3, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9,
+  dez: 10, onze: 11, doze: 12, treze: 13, catorze: 14, quatorze: 14, quinze: 15, dezesseis: 16, dezessete: 17, dezoito: 18, dezenove: 19,
+  vinte: 20, trinta: 30, quarenta: 40, cinquenta: 50, sessenta: 60, setenta: 70, oitenta: 80, noventa: 90,
+  cem: 100, cento: 100, duzentos: 200, duzentas: 200, trezentos: 300, trezentas: 300, quatrocentos: 400, quatrocentas: 400,
+  quinhentos: 500, quinhentas: 500, seiscentos: 600, seiscentas: 600, setecentos: 700, setecentas: 700, oitocentos: 800, oitocentas: 800,
+  novecentos: 900, novecentas: 900
+};
+function _wordsToNum(seq) {
+  // "mil e duzentos e cinquenta" → 1250
+  let total = 0, cur = 0, any = false;
+  for (const w of seq.split(/\s+/)) {
+    if (w === 'e') continue;
+    if (w === 'mil') { total += (cur || 1) * 1000; cur = 0; any = true; continue; }
+    if (!(w in _NUM_WORDS)) return null;
+    cur += _NUM_WORDS[w]; any = true;
+  }
+  return any ? total + cur : null;
+}
+function voiceNormalize(t) {
+  let s = ' ' + String(t || '').replace(/\s+/g, ' ') + ' ';
+  const NW = Object.keys(_NUM_WORDS).concat(['mil']).sort((a, b) => b.length - a.length).join('|');
+  const seq = `((?:${NW})(?:\\s+(?:e\\s+)?(?:${NW}))*)`;
+  // número por extenso antes de unidade ou depois de "dia/às"
+  s = s.replace(new RegExp(`${seq}(?=\\s+(?:horas?|reais|real|minutos?|centavos|e\\s+meia\\b|da\\s+(?:manhã|tarde|noite)))`, 'gi'), m => { const n = _wordsToNum(m.toLowerCase()); return n == null ? m : String(n); });
+  s = s.replace(new RegExp(`(^|\\s)(dia|às|as|a partir das|até as|até às)\\s+${seq}(?=\\s|$)`, 'gi'), (m, pre, a, b) => { const n = _wordsToNum(b.toLowerCase()); return n == null ? m : `${pre}${a} ${n}`; });
+  s = s.replace(/(^|\s)(?:ao|no|à|a)\s+(meio[- ]dia|meia[- ]noite)/gi, '$1às $2'); // "ao meio-dia" → "às meio-dia"
+  s = s.replace(/\bmeio[- ]dia(?:\s+e\s+meia)?\b/gi, m => /meia/i.test(m) ? '12:30' : '12h');
+  s = s.replace(/\bmeia[- ]noite\b/gi, '00h');
+  // "15 horas e 30 minutos" / "15 horas e 30" / "9 e meia" / "9 horas e meia"
+  s = s.replace(/\b(\d{1,2})\s*(?:horas?|h)\s+e\s+(\d{1,2})(?:\s+minutos?)?\b/gi, (m, h, mi) => `${h}:${mi.padStart(2, '0')}`);
+  s = s.replace(/\b(\d{1,2})(?:\s*(?:horas?|h))?\s+e\s+meia\b/gi, (m, h) => `${h}:30`);
+  s = s.replace(/\b(\d{1,2})\s+horas?\b/gi, '$1h');
+  // "da tarde/da noite" depois de hora → 24h
+  s = s.replace(/\b(\d{1,2})(?::(\d{2})|h)?\s+da\s+(tarde|noite)(?=\s|$)/gi, (m, h, mi, p) => { let H = Number(h); if (H < 12) H += 12; return mi ? `${H}:${mi}` : `${H}h`; });
+  s = s.replace(/\b(\d{1,2})(?::(\d{2})|h)?\s+da\s+manhã(?=\s|$)/gi, (m, h, mi) => mi ? `${h}:${mi}` : `${h}h`);
+  // "50 reais e 90 centavos" → "50,90 reais"
+  s = s.replace(/\b(\d+)\s+reais\s+e\s+(\d{1,2})\s+centavos\b/gi, (m, r, c) => `R$ ${r},${c.padStart(2, '0')}`);
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+// ── botões e estado ──
+function voiceSupported() { return !!_SR; }
+async function _voiceMode() {
+  if (!_SR) return 'none';
+  try {
+    if (typeof _SR.available === 'function') {
+      const st = await _SR.available({ langs: ['pt-BR'], processLocally: true });
+      if (st === 'available') return 'local';
+      if (st === 'downloadable' || st === 'downloading') return 'local-install';
+    }
+  } catch (e) {}
+  return 'cloud';
+}
+function _voiceBtnState(btn, on, mode) {
+  if (!btn) return;
+  btn.classList.toggle('rec', !!on);
+  btn.innerHTML = on ? '■' : '🎤';
+  btn.title = on ? 'Parar de ouvir' : 'Falar em vez de digitar';
+  const hint = document.getElementById(btn.dataset.hint);
+  if (hint) hint.innerHTML = on
+    ? `<span class="voice-dot"></span> Ouvindo… fale naturalmente, ex.: "dentista dia 20 às duas da tarde". ${mode === 'local' ? '🔒 Transcrição no aparelho.' : `☁ Transcrição pela nuvem do navegador. <a onclick="voiceRevokeCloud()">Desativar</a>`}`
+    : '';
+}
+async function toggleVoice(targetId, btn) {
+  if (_voice) { try { _voice.rec.stop(); } catch (e) {} return; }
+  if (!_SR) { toast('Este navegador não transcreve voz. No celular, use o 🎤 do próprio teclado.', true); return; }
+  let mode = await _voiceMode();
+  if (mode === 'local-install') {
+    toast('Baixando o reconhecimento de voz em português para o aparelho (uma vez só)…');
+    try { mode = (await _SR.install({ langs: ['pt-BR'], processLocally: true })) ? 'local' : 'cloud'; } catch (e) { mode = 'cloud'; }
+  }
+  if (mode === 'cloud' && !(STATE.settings && STATE.settings.voiceCloudOk)) { _voiceAskCloud(targetId, btn); return; }
+  _voiceStart(targetId, btn, mode);
+}
+function _voiceAskCloud(targetId, btn) {
+  _ensureModal('modal-voice', 'Transcrição de voz', 460);
+  const isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|android/i.test(navigator.userAgent);
+  document.getElementById('modal-voice-title').textContent = '🎤 Transcrição de voz';
+  document.getElementById('modal-voice-body').innerHTML = `
+    <div class="text-sm">Este navegador ainda não transcreve <strong>no próprio aparelho</strong>. Para funcionar, o áudio da sua fala é enviado ao serviço de voz do navegador (${isSafari ? 'Apple' : 'Google'}) e volta como texto.</div>
+    <div class="text-sm">O Personal OS não grava nem guarda o áudio — só o texto que aparece no campo.</div>
+    <div class="text-xs text-muted">Alternativa 100% local: o 🎤 do teclado do celular. Você pode desativar isto quando quiser, no aviso que aparece enquanto o app ouve.</div>`;
+  window._voicePending = { targetId, btn };
+  document.getElementById('modal-voice-footer').innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal('modal-voice')">Agora não</button>
+    <button class="btn btn-primary" onclick="voiceAcceptCloud()">Usar a transcrição</button>`;
+  openModal('modal-voice');
+}
+function voiceAcceptCloud() {
+  STATE.settings.voiceCloudOk = true; save();
+  closeModal('modal-voice');
+  const p = window._voicePending; window._voicePending = null;
+  if (p) _voiceStart(p.targetId, p.btn, 'cloud');
+}
+function voiceRevokeCloud() {
+  STATE.settings.voiceCloudOk = false; save();
+  if (_voice) { try { _voice.rec.abort(); } catch (e) {} }
+  toast('Transcrição pela nuvem desativada');
+}
+function _voiceStart(targetId, btn, mode) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  let rec;
+  try { rec = new _SR(); } catch (e) { toast('Não consegui iniciar o microfone.', true); return; }
+  rec.lang = 'pt-BR'; rec.continuous = true; rec.interimResults = true;
+  if (mode === 'local') { try { rec.processLocally = true; } catch (e) {} }
+  const base = el.value && !/\s$/.test(el.value) ? el.value + ' ' : (el.value || '');
+  const fmt = (txt) => { let t = voiceNormalize(txt); if (!base.trim() && t) t = t.charAt(0).toUpperCase() + t.slice(1); return base + t; };
+  let heard = false;
+  rec.onresult = (ev) => {
+    let all = '';
+    for (let i = 0; i < ev.results.length; i++) all += ev.results[i][0].transcript;
+    heard = heard || !!all.trim();
+    el.value = fmt(all);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  rec.onerror = (ev) => {
+    const msg = {
+      'not-allowed': 'Permita o uso do microfone para este site (ícone de cadeado na barra de endereço).',
+      'service-not-allowed': 'O navegador bloqueou o serviço de voz.',
+      'network': 'O serviço de voz não respondeu. Esta rede pode bloquear (ex.: computador do trabalho).',
+      'language-not-supported': 'Português ainda não está disponível para transcrição neste navegador.',
+      'audio-capture': 'Nenhum microfone encontrado.',
+      'no-speech': 'Não ouvi nada. Toque no 🎤 e fale de novo.'
+    }[ev.error];
+    if (ev.error !== 'aborted' && msg) toast(msg, ev.error !== 'no-speech');
+  };
+  rec.onend = () => {
+    _voice = null;
+    _voiceBtnState(btn, false);
+    el.value = el.value.replace(/\s+$/, '');
+    el.focus();
+    if (heard) { try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} }
+  };
+  try { rec.start(); } catch (e) { toast('Não consegui iniciar o microfone.', true); return; }
+  _voice = { rec, btn, el, mode };
+  _voiceBtnState(btn, true, mode);
+}
+// para ao sair da página ou fechar a janela
+const _origNavigateV334 = navigate;
+navigate = function () { if (_voice) { try { _voice.rec.abort(); } catch (e) {} } return _origNavigateV334.apply(this, arguments); };
+const _origCloseModalV334 = closeModal;
+closeModal = function (id) { if (_voice && id === 'modal-quickadd') { try { _voice.rec.abort(); } catch (e) {} } return _origCloseModalV334.apply(this, arguments); };
 
 </script>
 <script>
