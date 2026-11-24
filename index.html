@@ -225,6 +225,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .item-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;align-items:center}
 .item-actions{display:flex;gap:4px;opacity:0;transition:opacity .15s}
 .item-row:hover .item-actions{opacity:1}
+@media (hover:none){.item-actions{opacity:1}}
 
 /* ── HABIT GRID ── */
 .habit-grid{display:grid;grid-template-columns:repeat(31,1fr);gap:3px;margin-top:8px}
@@ -536,6 +537,33 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .voice-hint:empty{display:none}
 .voice-hint a{color:var(--accent);cursor:pointer;text-decoration:underline}
 .voice-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#d93025;margin-right:4px;animation:voicePulse 1.2s infinite}
+
+
+/* ── cronômetro (v3.35.0) ── */
+.timer-chip{display:flex;align-items:center;gap:6px;border:1px solid #d93025;border-radius:999px;padding:2px 4px 2px 10px;font-size:.76rem;background:color-mix(in srgb,#d93025 8%,var(--surface));max-width:320px}
+.timer-dot{width:7px;height:7px;border-radius:50%;background:#d93025;animation:voicePulse 1.4s infinite;flex-shrink:0}
+.timer-time{font-variant-numeric:tabular-nums;font-weight:700;color:#d93025}
+.timer-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--text2);max-width:170px}
+.timer-stop{border:none;background:#d93025;color:#fff;border-radius:50%;width:22px;height:22px;font-size:.6rem;cursor:pointer;flex-shrink:0}
+.timer-btn{color:var(--accent)}
+.timer-btn.on{color:#d93025}
+.timer-spent{font-size:.72rem;color:var(--text2);font-variant-numeric:tabular-nums}
+.timer-spent.on{color:#d93025;font-weight:600}
+.timer-spent.over{color:var(--accent-amber)}
+.timer-now{font-size:.78rem;background:color-mix(in srgb,#d93025 8%,transparent);border-radius:8px;padding:4px 8px;margin-bottom:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.timer-now [data-live-timer]{font-variant-numeric:tabular-nums;font-weight:700;color:#d93025}
+.task-time-box{border:1px solid var(--border);border-radius:var(--radius-sm,6px);padding:10px}
+.task-time-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.timer-live{font-variant-numeric:tabular-nums;font-weight:700;color:#d93025;font-size:1.05rem}
+.timer-running{border:1px solid #d93025 !important;color:#d93025 !important}
+.task-time-logs{margin-top:8px;max-height:120px;overflow:auto}
+.task-time-log{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.76rem;color:var(--text2);padding:2px 0;border-top:1px solid var(--border)}
+.task-time-log span:first-child{flex:1}
+.task-time-manual{display:flex;gap:6px;margin-top:8px;align-items:center}
+.task-time-manual input{max-width:90px;padding:4px 8px}
+.time-dim-row{display:flex;align-items:center;gap:8px;font-size:.82rem;padding:3px 0}
+.time-bar{width:120px;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden}
+.time-bar span{display:block;height:100%}
 
 .hide-mobile{}
 @media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
@@ -1149,6 +1177,10 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
         + Anexar arquivo
         <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.doc,.docx" style="display:none" onchange="handleTaskAttach(event)">
       </label>
+    </div>
+    <div class="form-group">
+      <label class="form-label">⏱ Tempo</label>
+      <div id="task-time-box" class="task-time-box"></div>
     </div>
     <input type="hidden" id="task-edit-id">
     <input type="hidden" id="task-attachments-data" value="[]">
@@ -4458,7 +4490,12 @@ function saveTask() {
   try { taskAttachments = JSON.parse(document.getElementById('task-attachments-data')?.value || '[]'); } catch(e){}
   task.attachments = taskAttachments;
   const existing = STATE.tasks.findIndex(t => t.id === id);
-  if (existing >= 0) STATE.tasks[existing] = { ...STATE.tasks[existing], ...task };
+  if (existing >= 0) {
+    const prev = STATE.tasks[existing];
+    task.created = prev.created || task.created;
+    task.completedAt = task.status === 'done' ? (prev.status === 'done' && prev.completedAt ? prev.completedAt : Date.now()) : undefined;
+    STATE.tasks[existing] = { ...prev, ...task };
+  }
   else STATE.tasks.push(task);
   save();
   closeModal('modal-task');
@@ -7853,7 +7890,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.34.0';
+const APP_VERSION = '3.35.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -10637,7 +10674,7 @@ function _scoreTask(t, windowMin, inEvent) {
     const f = goalForecast(g);
     if (f && f.risk) { s += 6; why.push(`avança "${g.title}", que está em risco`); } else why.push(`avança "${g.title}"`);
   }
-  const eff = _taskEffortH(t);
+  const eff = _taskDurH(t);
   if (eff) {
     const em = eff * 60;
     if (windowMin != null) {
@@ -10646,7 +10683,7 @@ function _scoreTask(t, windowMin, inEvent) {
     } else if (inEvent && em <= 30) { s += 8; why.push(`rápida (${_fmtDur(em)}), boa para uma pausa`); }
     if (em <= 15) s += 4;
   }
-  if (t.status === 'in_progress') { s += 5; why.push('você já começou'); }
+  if (t.status === 'in_progress') { s += 5; why.push(taskSpentMin(t) >= 1 ? `você já investiu ${_fmtMinShort(taskSpentMin(t))}` : 'você já começou'); }
   return { score: s, why };
 }
 function whatNow() {
@@ -10733,7 +10770,7 @@ function planWeek(offset) {
   const unplaced = [], late = [];
   let taskMin = 0;
   for (const t of pool) {
-    const eff = _taskEffortH(t);
+    const eff = _taskDurH(t); // tempo que falta, no seu ritmo real (cronômetro)
     const dur = Math.round((eff || 0.5) * 60);
     taskMin += dur;
     let rem = dur, parts = [];
@@ -12497,6 +12534,263 @@ const _origNavigateV334 = navigate;
 navigate = function () { if (_voice) { try { _voice.rec.abort(); } catch (e) {} } return _origNavigateV334.apply(this, arguments); };
 const _origCloseModalV334 = closeModal;
 closeModal = function (id) { if (_voice && id === 'modal-quickadd') { try { _voice.rec.abort(); } catch (e) {} } return _origCloseModalV334.apply(this, arguments); };
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.35.0 — CRONÔMETRO DAS TAREFAS
+//  task.timeLogs = [{s, e}] (ms) · settings.activeTimer = {taskId, start} (só neste aparelho)
+// ═══════════════════════════════════════════════════════════
+function _activeTimer() { return (STATE.settings && STATE.settings.activeTimer) || null; }
+function taskSpentMin(t, includeRunning = true) {
+  if (!t) return 0;
+  let ms = (t.timeLogs || []).reduce((s, l) => s + Math.max(0, (Number(l.e) || 0) - (Number(l.s) || 0)), 0);
+  const a = _activeTimer();
+  if (includeRunning && a && a.taskId === t.id) ms += Math.max(0, Date.now() - a.start);
+  return ms / 60000;
+}
+function _fmtClock(ms) { const s = Math.max(0, Math.floor(ms / 1000)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(sec).padStart(2, '0'); }
+function _fmtMinShort(min) { min = Math.round(min); if (min < 60) return `${min} min`; const h = Math.floor(min / 60), r = min % 60; return r ? `${h}h${String(r).padStart(2, '0')}` : `${h}h`; }
+
+// ── estimativa × real (calibração pelo seu histórico) ──
+function estimateCalibration() {
+  const done = (STATE.tasks || []).filter(t => t.status === 'done' && Number(t.effort) > 0 && taskSpentMin(t, false) >= 5)
+    .sort((a, b) => (Number(b.completedAt) || 0) - (Number(a.completedAt) || 0)).slice(0, 20);
+  if (done.length < 3) return { n: done.length, factor: 1, ready: false };
+  const ratios = done.map(t => taskSpentMin(t, false) / (Number(t.effort) * 60)).sort((a, b) => a - b);
+  const mid = Math.floor(ratios.length / 2);
+  const med = ratios.length % 2 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
+  return { n: done.length, factor: Math.max(0.3, Math.min(4, med)), ready: true };
+}
+// duração que ainda falta, no seu ritmo real (h); null se não houver estimativa nem histórico
+function _taskDurH(t) {
+  const est = _taskEffortH(t);
+  const spent = taskSpentMin(t, true) / 60;
+  if (!est) return spent > 0 ? 0.5 : null;
+  const cal = estimateCalibration();
+  const total = est * (cal.ready ? cal.factor : 1);
+  return spent > 0 ? Math.max(0.25, total - spent) : total;
+}
+
+// ── iniciar / parar ──
+function timerStart(taskId) {
+  const t = (STATE.tasks || []).find(x => x.id === taskId);
+  if (!t) return;
+  const a = _activeTimer();
+  if (a && a.taskId === taskId) return;
+  if (a) _timerCommit(a, null, true);
+  STATE.settings.activeTimer = { taskId, start: Date.now() };
+  if (t.status === 'not_started') { t.status = 'in_progress'; t.updatedAt = Date.now(); }
+  save();
+  renderTimerChip();
+  _timerRefresh();
+  toast(`⏱ Cronômetro ligado: ${t.title}`);
+}
+function timerStop() {
+  const a = _activeTimer(); if (!a) return;
+  const ms = Date.now() - a.start;
+  if (ms > 3 * 3600000) { _timerAskLong(a, ms); return; }
+  _timerCommit(a, null, false);
+}
+function _timerCommit(a, minutesOverride, silent) {
+  const t = (STATE.tasks || []).find(x => x.id === a.taskId);
+  STATE.settings.activeTimer = null;
+  if (t) {
+    const end = Date.now();
+    const durMs = minutesOverride != null ? Math.max(0, minutesOverride) * 60000 : end - a.start;
+    if (durMs >= 60000) { t.timeLogs = [...(t.timeLogs || []), { s: end - durMs, e: end }]; t.updatedAt = Date.now(); }
+    save();
+    if (!silent) toast(durMs >= 60000 ? `⏱ ${_fmtMinShort(durMs / 60000)} em "${t.title}" · total ${_fmtMinShort(taskSpentMin(t, false))}` : 'Menos de 1 minuto — não registrei.');
+  } else save();
+  renderTimerChip();
+  _timerRefresh();
+}
+function _timerAskLong(a, ms) {
+  _ensureModal('modal-timer-long', 'Cronômetro', 420);
+  const t = (STATE.tasks || []).find(x => x.id === a.taskId);
+  document.getElementById('modal-timer-long-title').textContent = '⏱ O cronômetro ficou ligado por muito tempo';
+  document.getElementById('modal-timer-long-body').innerHTML = `
+    <div class="text-sm">Ele ficou ligado por <strong>${_fmtMinShort(ms / 60000)}</strong> em "${_esc(t ? t.title : 'tarefa')}". Quanto tempo você realmente trabalhou nela?</div>
+    <div style="display:flex;align-items:center;gap:8px"><input id="timer-long-min" type="number" min="0" class="form-input" style="max-width:120px" value="${Math.round(ms / 60000)}"> <span class="text-sm">minutos</span></div>`;
+  document.getElementById('modal-timer-long-footer').innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal('modal-timer-long');_timerCommit(_activeTimer(),0,true);toast('Sessão descartada')">Descartar</button>
+    <button class="btn btn-primary" onclick="const v=Number(document.getElementById('timer-long-min').value)||0;closeModal('modal-timer-long');_timerCommit(_activeTimer(),v,false)">Salvar</button>`;
+  openModal('modal-timer-long');
+}
+function timerToggle(taskId) { const a = _activeTimer(); if (a && a.taskId === taskId) timerStop(); else timerStart(taskId); }
+function taskAddManualTime(taskId) {
+  const inp = document.getElementById('task-time-manual');
+  const min = Number(inp && inp.value) || 0;
+  if (min <= 0) { toast('Informe os minutos', true); return; }
+  const t = (STATE.tasks || []).find(x => x.id === taskId); if (!t) return;
+  const end = Date.now();
+  t.timeLogs = [...(t.timeLogs || []), { s: end - min * 60000, e: end, manual: true }]; t.updatedAt = Date.now();
+  save(); renderTaskTimeBox(taskId); _timerRefresh();
+  toast(`+${_fmtMinShort(min)} em "${t.title}"`);
+}
+function taskDeleteTimeLog(taskId, idx) {
+  const t = (STATE.tasks || []).find(x => x.id === taskId); if (!t || !t.timeLogs) return;
+  t.timeLogs = t.timeLogs.filter((_, i) => i !== idx); t.updatedAt = Date.now();
+  save(); renderTaskTimeBox(taskId); _timerRefresh();
+}
+
+// ── chip no topo (aparece em qualquer tela enquanto roda) ──
+function renderTimerChip() {
+  let chip = document.getElementById('timer-chip');
+  const a = _activeTimer();
+  const t = a && (STATE.tasks || []).find(x => x.id === a.taskId);
+  if (a && !t) { STATE.settings.activeTimer = null; save(); }
+  if (!a || !t) { if (chip) chip.style.display = 'none'; return; }
+  if (!chip) {
+    const bar = document.querySelector('.topbar-actions');
+    if (!bar) return;
+    chip = document.createElement('div');
+    chip.id = 'timer-chip'; chip.className = 'timer-chip';
+    bar.insertBefore(chip, bar.firstChild);
+  }
+  chip.style.display = 'flex';
+  chip.innerHTML = `<span class="timer-dot"></span><span class="timer-time" id="timer-chip-time">${_fmtClock(Date.now() - a.start)}</span>
+    <span class="timer-title hide-mobile" onclick="editTask('${t.id}')" title="Abrir a tarefa">${_esc(t.title)}</span>
+    <button class="timer-stop" onclick="timerStop()" title="Parar">■</button>`;
+}
+setInterval(() => {
+  const a = _activeTimer(); if (!a) return;
+  if (!document.getElementById('timer-chip') || document.getElementById('timer-chip').style.display === 'none') renderTimerChip();
+  const el = document.getElementById('timer-chip-time'); if (el) el.textContent = _fmtClock(Date.now() - a.start);
+  document.querySelectorAll('[data-live-timer]').forEach(x => { x.textContent = _fmtClock(Date.now() - a.start); });
+  const tot = document.getElementById('task-time-total-live');
+  if (tot) { const t = (STATE.tasks || []).find(x => x.id === a.taskId); if (t) tot.textContent = _fmtMinShort(taskSpentMin(t)); }
+}, 500);
+function _timerRefresh() {
+  if (currentPage === 'tasks') renderTasks();
+  else if (currentPage === 'dashboard') renderDashboard();
+  else if (currentPage === 'planner') renderPlanner();
+  else if (currentPage === 'insights') renderInsights();
+  const id = (document.getElementById('task-edit-id') || {}).value;
+  if (id && !document.getElementById('modal-task').classList.contains('hidden')) renderTaskTimeBox(id);
+}
+
+// ── Tarefas: ▶ em cada linha e tempo registrado ──
+const _origRenderTasksV335 = renderTasks;
+renderTasks = function () {
+  _origRenderTasksV335();
+  const a = _activeTimer();
+  (STATE.tasks || []).forEach(t => {
+    const row = document.getElementById('task-' + t.id);
+    if (!row || row.querySelector('.timer-btn')) return;
+    const running = a && a.taskId === t.id;
+    const acts = row.querySelector('.item-actions');
+    if (acts && t.status !== 'done' && t.status !== 'cancelled') {
+      acts.insertAdjacentHTML('afterbegin', `<button class="btn-icon timer-btn${running ? ' on' : ''}" onclick="event.stopPropagation();timerToggle('${t.id}')" title="${running ? 'Parar o cronômetro' : 'Começar a cronometrar'}">${running ? '■' : '▶'}</button>`);
+      if (running) acts.style.opacity = '1';
+    }
+    const spent = taskSpentMin(t, true);
+    const meta = row.querySelector('.item-meta');
+    if (meta && (spent >= 1 || running)) {
+      const est = Number(t.effort) > 0 ? Number(t.effort) * 60 : 0;
+      const over = est && spent > est;
+      meta.insertAdjacentHTML('beforeend', `<span class="timer-spent${running ? ' on' : ''}${over ? ' over' : ''}" title="Tempo registrado${est ? ' / estimado' : ''}">⏱ ${running ? `<span data-live-timer>${_fmtClock(Date.now() - a.start)}</span> · ` : ''}${_fmtMinShort(spent)}${est ? ' / ' + _fmtMinShort(est) : ''}</span>`);
+    }
+  });
+};
+
+// ── Formulário da tarefa: bloco "Tempo" ──
+function renderTaskTimeBox(taskId) {
+  const box = document.getElementById('task-time-box');
+  if (!box) return;
+  const t = taskId && (STATE.tasks || []).find(x => x.id === taskId);
+  if (!t) { box.innerHTML = `<div class="text-xs text-muted">Salve a tarefa para começar a cronometrar.</div>`; return; }
+  const a = _activeTimer(), running = a && a.taskId === t.id;
+  const logs = (t.timeLogs || []).map((l, i) => ({ ...l, i })).sort((x, y) => y.s - x.s);
+  const est = Number(t.effort) > 0 ? Number(t.effort) * 60 : 0;
+  const spent = taskSpentMin(t, true);
+  const d = (ms) => { const x = new Date(ms); return `${x.getDate()}/${x.getMonth() + 1} ${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`; };
+  box.innerHTML = `
+    <div class="task-time-head">
+      <button type="button" class="btn ${running ? 'btn-ghost timer-running' : 'btn-primary'} btn-sm" onclick="timerToggle('${t.id}')">${running ? '■ Parar' : '▶ Começar'}</button>
+      ${running ? `<span class="timer-live" data-live-timer>${_fmtClock(Date.now() - a.start)}</span>` : ''}
+      <span class="text-sm">Total: <strong id="task-time-total-live">${_fmtMinShort(spent)}</strong>${est ? ` de ${_fmtMinShort(est)} estimadas${spent > est ? ` <span style="color:var(--accent-amber)">(+${Math.round((spent / est - 1) * 100)}%)</span>` : ''}` : ''}</span>
+    </div>
+    ${logs.length ? `<div class="task-time-logs">${logs.map(l => `<div class="task-time-log"><span>${d(l.s)}${l.manual ? ' · manual' : ` – ${String(new Date(l.e).getHours()).padStart(2, '0')}:${String(new Date(l.e).getMinutes()).padStart(2, '0')}`}</span><span>${_fmtMinShort((l.e - l.s) / 60000)}</span><button type="button" class="btn-icon" title="Apagar sessão" onclick="taskDeleteTimeLog('${t.id}',${l.i})">✕</button></div>`).join('')}</div>` : ''}
+    <div class="task-time-manual"><input id="task-time-manual" type="number" min="1" placeholder="min" class="form-input"><button type="button" class="btn btn-ghost btn-sm" onclick="taskAddManualTime('${t.id}')">+ lançar tempo</button></div>`;
+}
+const _origEditTaskV335 = editTask;
+editTask = function (id) { _origEditTaskV335(id); renderTaskTimeBox(id); };
+const _origOpenTaskModalV335 = openTaskModal;
+openTaskModal = function (editId) { _origOpenTaskModalV335.apply(this, arguments); if (!editId) renderTaskTimeBox(null); };
+
+// ── concluir/excluir a tarefa com o cronômetro ligado → salva a sessão ──
+const _origToggleTaskV335 = toggleTask;
+toggleTask = function (id) {
+  const a = _activeTimer();
+  const t = (STATE.tasks || []).find(x => x.id === id);
+  if (a && a.taskId === id && t && t.status !== 'done') _timerCommit(a, null, false);
+  return _origToggleTaskV335(id);
+};
+const _origDeleteTaskV335 = typeof deleteTask === 'function' ? deleteTask : null;
+if (_origDeleteTaskV335) deleteTask = function (id) {
+  const a = _activeTimer();
+  const r = _origDeleteTaskV335.apply(this, arguments);
+  if (a && a.taskId === id && !(STATE.tasks || []).some(x => x.id === id)) { STATE.settings.activeTimer = null; save(); renderTimerChip(); }
+  return r;
+};
+
+// ── "O que faço agora": ▶ para começar direto ──
+const _origWhatNowHTMLV335 = whatNowHTML;
+whatNowHTML = function () {
+  let html = _origWhatNowHTMLV335.apply(this, arguments);
+  const a = _activeTimer();
+  if (a) {
+    const t = (STATE.tasks || []).find(x => x.id === a.taskId);
+    if (t) html = `<div class="timer-now">⏱ Fazendo agora: <strong>${_esc(t.title)}</strong> · <span data-live-timer>${_fmtClock(Date.now() - a.start)}</span> <button class="btn btn-ghost btn-sm" onclick="timerStop()">■ Parar</button></div>` + html;
+  }
+  return html;
+};
+const _origRenderCCV335 = renderCommandCenter;
+renderCommandCenter = function () {
+  _origRenderCCV335();
+  const a = _activeTimer();
+  const list = document.getElementById('cc-now-list'); if (!list) return;
+  if (a) { const t = (STATE.tasks || []).find(x => x.id === a.taskId); if (t) list.insertAdjacentHTML('beforebegin', `<div class="timer-now">⏱ <strong>${_esc(t.title)}</strong> · <span data-live-timer>${_fmtClock(Date.now() - a.start)}</span> <button class="btn btn-ghost btn-sm cc-btn" onclick="event.stopPropagation();timerStop()">■</button></div>`); }
+  whatNow().picks.forEach((p, i) => {
+    if (p.kind !== 'task') return;
+    const row = list.children[i]; if (!row) return;
+    const btn = row.querySelector('.cc-btn'); if (!btn || row.querySelector('.timer-btn')) return;
+    btn.insertAdjacentHTML('beforebegin', `<button class="btn btn-ghost btn-sm cc-btn timer-btn${a && a.taskId === p.id ? ' on' : ''}" title="Cronometrar" onclick="event.stopPropagation();timerToggle('${p.id}')">${a && a.taskId === p.id ? '■' : '▶'}</button>`);
+  });
+};
+
+// ── Inteligência: estimado × real e para onde foi o tempo ──
+const _origRenderInsightsV335 = renderInsights;
+renderInsights = function () {
+  _origRenderInsightsV335();
+  const c = document.getElementById('page-insights'); if (!c) return;
+  const cal = estimateCalibration();
+  const today = todayStr(), t0 = new Date(today + 'T12:00:00'), mon = _dateAdd(today, -((t0.getDay() + 6) % 7));
+  const monMs = new Date(mon + 'T00:00:00').getTime();
+  const byDim = {};
+  (STATE.tasks || []).forEach(t => (t.timeLogs || []).forEach(l => { if (l.e >= monMs) byDim[t.dim || ''] = (byDim[t.dim || ''] || 0) + Math.max(0, l.e - Math.max(l.s, monMs)) / 60000; }));
+  const a = _activeTimer(); if (a) { const t = (STATE.tasks || []).find(x => x.id === a.taskId); if (t) byDim[t.dim || ''] = (byDim[t.dim || ''] || 0) + (Date.now() - Math.max(a.start, monMs)) / 60000; }
+  const totalWeek = Object.values(byDim).reduce((s, v) => s + v, 0);
+  const rows = Object.entries(byDim).sort((x, y) => y[1] - x[1]).map(([d, m]) => `<div class="time-dim-row"><span class="dim-dot" style="background:${d ? getDimColor(d) : 'var(--text3)'}"></span><span style="flex:1">${d ? _esc(getDimName(d)) : 'Sem dimensão'}</span><span class="time-bar"><span style="width:${Math.round(m / totalWeek * 100)}%;background:${d ? getDimColor(d) : 'var(--text3)'}"></span></span><strong>${_fmtMinShort(m)}</strong></div>`).join('');
+  c.insertAdjacentHTML('beforeend', `<div class="card mb-4">
+    <div class="font-semibold mb-2">⏱ Tempo real nas tarefas</div>
+    <div class="text-sm">${cal.ready ? `Você costuma levar <strong>${(Math.round(cal.factor * 10) / 10).toLocaleString('pt-BR')}x</strong> o tempo que estima (mediana de ${cal.n} tarefas concluídas com cronômetro). O Planejador da semana já usa esse ritmo.` : `Conclua ${3 - cal.n} tarefa(s) com estimativa e cronômetro para o app aprender o seu ritmo real (${cal.n}/3).`}</div>
+    <div class="text-xs text-muted mt-3 mb-1">Esta semana${totalWeek ? `: ${_fmtMinShort(totalWeek)} cronometradas` : ''}</div>
+    ${rows || '<div class="text-sm text-muted">Nenhum tempo cronometrado esta semana. Use ▶ nas tarefas.</div>'}
+  </div>`);
+};
+
+// mostra o cronômetro ao abrir o app (se ficou ligado)
+setTimeout(renderTimerChip, 0);
+
+// Planejador: avisa quando as durações já estão no seu ritmo real
+const _origRenderPlannerV335 = renderPlanner;
+renderPlanner = function () {
+  _origRenderPlannerV335();
+  const cal = estimateCalibration();
+  const card = document.querySelector('#page-planner .card');
+  if (card && cal.ready && !card.querySelector('.cal-note')) card.insertAdjacentHTML('beforeend', `<div class="text-xs mt-2 cal-note" style="color:var(--accent)">⏱ Durações ajustadas ao seu ritmo real: você costuma levar ${(Math.round(cal.factor * 10) / 10).toLocaleString('pt-BR')}x o estimado. Tarefas já começadas contam só o tempo que falta.</div>`);
+};
 
 </script>
 <script>
