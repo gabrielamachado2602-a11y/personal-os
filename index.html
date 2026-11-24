@@ -197,6 +197,12 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 }
 .modal-overlay.hidden{display:none}
 .modal{background:var(--surface);border-radius:var(--radius);width:100%;max-width:520px;padding:24px;box-shadow:var(--shadow-md)}
+/* janelas no formato modal-box (Caderneta, Pipeline, Estante, Inteligência) com o mesmo visual das demais */
+.modal-box{background:var(--surface);border-radius:var(--radius);width:100%;max-width:520px;padding:24px;box-shadow:var(--shadow-md);border:1px solid var(--border)}
+.modal-box .modal-title{font-size:1rem;font-weight:600}
+.modal-footer{display:flex;gap:8px;margin-top:20px;justify-content:flex-end;flex-wrap:wrap}
+.modal-close{background:none;border:none;color:var(--text3);font-size:1rem;cursor:pointer;padding:4px 8px;border-radius:var(--radius-sm,6px);line-height:1}
+.modal-close:hover{background:var(--surface2);color:var(--text)}
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
 .modal-title{font-size:1rem;font-weight:600}
 .modal-actions{display:flex;gap:8px;margin-top:20px;justify-content:flex-end}
@@ -291,6 +297,67 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .pipe-board{max-width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(220px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
 .pipe-col{scroll-snap-align:start;min-height:120px}
 .pipe-card .btn:disabled{opacity:.3;cursor:default}
+
+/* ── Command Center em uma tela (v3.31.0) ── */
+.page.cc-page{max-width:none}
+.cc-head{display:flex;align-items:center;gap:16px;margin-bottom:12px}
+.cc-hello{font-family:var(--font-display,serif);font-size:1.45rem;font-style:italic;line-height:1.1;white-space:nowrap}
+.cc-word{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 14px;cursor:pointer;overflow:hidden;white-space:nowrap}
+.cc-word:hover{border-color:var(--accent)}
+.cc-word-tag{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text3)}
+.cc-word-w{font-family:var(--font-display,serif);font-size:1.2rem;font-style:italic;color:var(--accent)}
+.cc-word-def{font-size:.8rem;color:var(--text2);overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.cc-word-tr{font-size:.72rem;color:var(--text3);flex-shrink:0}
+.cc-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:12px}
+.cc-kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;cursor:pointer;min-width:0}
+.cc-kpi:hover{border-color:var(--accent)}
+.cc-kpi-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-kpi-value{font-family:var(--font-display,serif);font-size:1.45rem;font-weight:600;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-kpi-sub{font-size:.7rem;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-grid{display:grid;grid-template-columns:1.15fr 1fr .9fr;gap:12px}
+.cc-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.cc-card{padding:12px 14px !important;margin:0 !important}
+.cc-card-head{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:.88rem;margin-bottom:6px;gap:8px}
+.cc-link{padding:1px 8px !important;font-size:.72rem !important}
+.cc-ctx{font-size:.75rem;color:var(--text2);margin-bottom:4px}
+.cc-list{overflow:hidden}
+.cc-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer}
+.cc-row:last-child{border-bottom:none}
+.cc-row-main{flex:1;min-width:0}
+.cc-row-title{font-size:.84rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-row-sub{font-size:.7rem;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-num{font-family:var(--font-display,serif);font-size:1.15rem;color:var(--accent);width:16px;text-align:center}
+.cc-sev{width:4px;align-self:stretch;border-radius:2px;min-height:24px}
+.cc-btn{padding:2px 9px !important;font-size:.72rem !important;flex-shrink:0}
+.cc-more{display:block;font-size:.72rem;color:var(--accent);cursor:pointer;padding-top:4px}
+.cc-habits{display:flex;flex-wrap:wrap;gap:6px}
+.cc-habit{font-size:.75rem;border:1px solid var(--border);background:var(--surface2);color:var(--text2);border-radius:999px;padding:3px 10px;cursor:pointer}
+.cc-habit.done{background:var(--accent);border-color:var(--accent);color:#fff}
+.cc-week{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center}
+.cc-week strong{display:block;font-family:var(--font-display,serif);font-size:1.3rem;line-height:1.1}
+.cc-week span{font-size:.66rem;color:var(--text3)}
+.cc-day{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:6px 0 2px}
+.cc-day:first-child{margin-top:0}
+.cc-ev{display:flex;align-items:center;gap:6px;font-size:.78rem;padding:2px 0;cursor:pointer;white-space:nowrap}
+.cc-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.cc-ev-time{color:var(--text3);width:38px;flex-shrink:0;font-size:.72rem}
+.cc-ev-title{overflow:hidden;text-overflow:ellipsis}
+@media(min-width:1100px){
+  .page.cc-page{height:calc(100vh - 52px);padding:16px 24px;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box}
+  .cc-grid{flex:1;min-height:0}
+  .cc-col{min-height:0}
+  .cc-grow{flex:1;min-height:0;display:flex;flex-direction:column}
+  .cc-grow .cc-list{flex:1;min-height:0}
+}
+@media(max-width:1099px){
+  .cc-grid{grid-template-columns:1fr}
+  .cc-kpis{grid-template-columns:repeat(3,1fr)}
+  .cc-head{flex-wrap:wrap}
+  .cc-word{order:3;flex-basis:100%;flex-wrap:wrap;white-space:normal}
+  .cc-word-def{white-space:normal}
+  #cc-ops-list>.cc-row:nth-child(n+6),#cc-agenda-list>*:nth-child(n+14){display:none}
+}
+
 .hide-mobile{}
 @media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
 .plan-week{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -7592,7 +7659,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.30.1';
+const APP_VERSION = '3.31.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -10826,6 +10893,300 @@ processInboxItem = function () {
   }
   _origProcessInboxItemV330();
 };
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.31.0 — COMMAND CENTER EM UMA TELA + PALAVRA DO DIA
+// ═══════════════════════════════════════════════════════════
+
+// [palavra, classe, definição, exemplo, inglês, espanhol, francês]
+const WORDS_OF_DAY = [
+  ['Resiliência', 's.f.', 'Capacidade de se recuperar e se adaptar diante de adversidades.', 'A resiliência da equipe ficou clara durante a troca de sistema.', 'resilience', 'resiliencia', 'résilience'],
+  ['Protagonismo', 's.m.', 'Atitude de assumir papel ativo e central nas decisões e ações.', 'O programa estimula o protagonismo dos jovens na comunidade.', 'agency', 'protagonismo', 'rôle de premier plan'],
+  ['Proatividade', 's.f.', 'Capacidade de antecipar problemas e agir antes de ser solicitado.', 'A proatividade dela evitou um atraso na entrega.', 'proactivity', 'proactividad', 'proactivité'],
+  ['Assertividade', 's.f.', 'Habilidade de expressar opiniões com clareza e firmeza, respeitando o outro.', 'Com assertividade, ela apresentou os riscos à liderança.', 'assertiveness', 'asertividad', 'assertivité'],
+  ['Alavancar', 'v.', 'Impulsionar ou ampliar resultados usando algo como apoio.', 'A parceria alavancou o alcance do projeto.', 'to leverage', 'impulsar', 'tirer parti de'],
+  ['Escalabilidade', 's.f.', 'Capacidade de crescer em volume sem perder eficiência.', 'O novo processo foi desenhado pensando em escalabilidade.', 'scalability', 'escalabilidad', 'évolutivité'],
+  ['Sinergia', 's.f.', 'Ação conjunta que gera um resultado maior que a soma das partes.', 'Houve sinergia entre as áreas de marketing e atendimento.', 'synergy', 'sinergia', 'synergie'],
+  ['Mitigar', 'v.', 'Tornar mais brando; reduzir um risco ou efeito negativo.', 'Criamos um plano para mitigar o impacto da migração.', 'to mitigate', 'mitigar', 'atténuer'],
+  ['Fomentar', 'v.', 'Estimular, promover o desenvolvimento de algo.', 'A iniciativa busca fomentar a leitura entre os jovens.', 'to foster', 'fomentar', 'favoriser'],
+  ['Efêmero', 'adj.', 'Que dura pouco; passageiro.', 'O sucesso de uma campanha pode ser efêmero sem consistência.', 'ephemeral', 'efímero', 'éphémère'],
+  ['Perspicaz', 'adj.', 'Que percebe com rapidez o que não é evidente.', 'Foi uma pergunta perspicaz para o painel.', 'perceptive', 'perspicaz', 'perspicace'],
+  ['Idiossincrasia', 's.f.', 'Característica de comportamento própria de uma pessoa ou grupo.', 'Cada cliente tem suas idiossincrasias.', 'idiosyncrasy', 'idiosincrasia', 'idiosyncrasie'],
+  ['Inexorável', 'adj.', 'Que não se pode evitar ou deter.', 'A digitalização do atendimento é inexorável.', 'inexorable', 'inexorable', 'inexorable'],
+  ['Ressignificar', 'v.', 'Dar novo significado a algo.', 'Ela ressignificou o erro como aprendizado.', 'to reframe', 'resignificar', 'redonner du sens à'],
+  ['Prolixo', 'adj.', 'Que usa palavras em excesso; longo e cansativo.', 'Evite respostas prolixas na entrevista.', 'verbose', 'verboso', 'prolixe'],
+  ['Conciso', 'adj.', 'Que diz muito em poucas palavras.', 'Um pitch conciso prende a atenção da banca.', 'concise', 'conciso', 'concis'],
+  ['Ponderar', 'v.', 'Avaliar com cuidado antes de decidir.', 'É preciso ponderar custo e benefício.', 'to weigh', 'ponderar', 'peser'],
+  ['Elucidar', 'v.', 'Tornar claro; esclarecer.', 'Os dados ajudaram a elucidar a causa das reclamações.', 'to elucidate', 'esclarecer', 'élucider'],
+  ['Exequível', 'adj.', 'Que pode ser realizado; viável.', 'O plano é ambicioso, mas exequível.', 'feasible', 'factible', 'réalisable'],
+  ['Tangível', 'adj.', 'Que pode ser medido ou percebido de forma concreta.', 'Traga resultados tangíveis para o currículo.', 'tangible', 'tangible', 'tangible'],
+  ['Iminente', 'adj.', 'Que está prestes a acontecer.', 'Com o prazo iminente, priorizamos o essencial.', 'imminent', 'inminente', 'imminent'],
+  ['Eminente', 'adj.', 'Que se destaca; ilustre.', 'A palestra foi dada por uma eminente pesquisadora.', 'eminent', 'eminente', 'éminent'],
+  ['Paradigma', 's.m.', 'Modelo ou padrão de referência.', 'O trabalho remoto mudou o paradigma das empresas.', 'paradigm', 'paradigma', 'paradigme'],
+  ['Diligente', 'adj.', 'Cuidadoso, zeloso e ágil no que faz.', 'Uma analista diligente revisa os números antes de enviar.', 'diligent', 'diligente', 'consciencieux'],
+  ['Pragmático', 'adj.', 'Voltado para resultados práticos.', 'Ela teve uma abordagem pragmática diante do problema.', 'pragmatic', 'pragmático', 'pragmatique'],
+  ['Altruísmo', 's.m.', 'Dedicação desinteressada ao bem do outro.', 'O voluntariado é uma forma de altruísmo.', 'altruism', 'altruismo', 'altruisme'],
+  ['Plausível', 'adj.', 'Que pode ser aceito como razoável ou verdadeiro.', 'A hipótese é plausível, mas precisa de dados.', 'plausible', 'plausible', 'plausible'],
+  ['Ubíquo', 'adj.', 'Que está presente em toda parte.', 'O celular se tornou ubíquo no dia a dia.', 'ubiquitous', 'ubicuo', 'omniprésent'],
+  ['Sagaz', 'adj.', 'Esperto, de raciocínio rápido e certeiro.', 'Uma leitura sagaz do mercado.', 'shrewd', 'sagaz', 'sagace'],
+  ['Lacônico', 'adj.', 'Que fala ou escreve com pouquíssimas palavras.', 'A resposta lacônica deixou dúvidas.', 'laconic', 'lacónico', 'laconique'],
+  ['Resoluto', 'adj.', 'Decidido, firme em seus propósitos.', 'Seguiu resoluta rumo à faixa preta.', 'resolute', 'resuelto', 'résolu'],
+  ['Fidedigno', 'adj.', 'Digno de confiança; que merece crédito.', 'Use apenas fontes fidedignas no relatório.', 'reliable', 'fidedigno', 'fiable'],
+  ['Inerente', 'adj.', 'Que faz parte da natureza de algo.', 'Riscos são inerentes a qualquer projeto.', 'inherent', 'inherente', 'inhérent'],
+  ['Premente', 'adj.', 'Urgente; que exige ação imediata.', 'Há uma necessidade premente de treinamento.', 'pressing', 'apremiante', 'pressant'],
+  ['Contundente', 'adj.', 'Que convence de forma incisiva.', 'Ela trouxe um argumento contundente, com números.', 'compelling', 'contundente', 'percutant'],
+  ['Incipiente', 'adj.', 'Que está no começo; ainda pouco desenvolvido.', 'O projeto ainda é incipiente, mas promissor.', 'incipient', 'incipiente', 'naissant'],
+  ['Profícuo', 'adj.', 'Útil, proveitoso; que dá bons resultados.', 'Foi uma reunião profícua.', 'fruitful', 'provechoso', 'fructueux'],
+  ['Notório', 'adj.', 'Conhecido de todos; evidente.', 'É notório o avanço dela em inglês.', 'well-known', 'notorio', 'notoire'],
+  ['Vicissitude', 's.f.', 'Mudança de circunstâncias, geralmente adversa.', 'Manteve a rotina apesar das vicissitudes do ano.', 'vicissitude', 'vicisitud', 'vicissitude'],
+  ['Equidade', 's.f.', 'Justiça que considera as necessidades de cada um.', 'A equidade de gênero esteve no centro do debate.', 'equity', 'equidad', 'équité'],
+  ['Primazia', 's.f.', 'Prioridade; posição de destaque.', 'A segurança do paciente tem primazia.', 'primacy', 'primacía', 'primauté'],
+  ['Pujante', 'adj.', 'Que tem força e vigor; em crescimento.', 'Um setor pujante abre muitas vagas de trainee.', 'thriving', 'pujante', 'florissant'],
+  ['Sucinto', 'adj.', 'Resumido, breve.', 'Mande um resumo sucinto para a gestora.', 'succinct', 'sucinto', 'succinct'],
+  ['Arcabouço', 's.m.', 'Estrutura base; conjunto de princípios que sustentam algo.', 'O arcabouço legal protege o consumidor.', 'framework', 'marco', 'cadre'],
+  ['Respaldo', 's.m.', 'Apoio, garantia, suporte.', 'A decisão teve respaldo da diretoria.', 'backing', 'respaldo', 'appui'],
+  ['Fulcral', 'adj.', 'Central, essencial.', 'O atendimento é fulcral para a reputação da marca.', 'pivotal', 'crucial', 'crucial'],
+  ['Ensejo', 's.m.', 'Oportunidade, ocasião favorável.', 'Aproveito o ensejo para agradecer a todos.', 'opportunity', 'ocasión', 'occasion'],
+  ['Prerrogativa', 's.f.', 'Direito ou privilégio próprio de uma função.', 'Aprovar o orçamento é prerrogativa da diretoria.', 'prerogative', 'prerrogativa', 'prérogative'],
+  ['Ínterim', 's.m.', 'Intervalo de tempo entre dois acontecimentos.', 'Nesse ínterim, revisei o currículo.', 'meantime', 'ínterin', 'entre-temps'],
+  ['Óbice', 's.m.', 'Obstáculo, impedimento.', 'Não há óbice para a aprovação.', 'hindrance', 'óbice', 'obstacle'],
+  ['Precípuo', 'adj.', 'Principal, essencial.', 'O objetivo precípuo é reduzir o tempo de resposta.', 'main', 'principal', 'primordial'],
+  ['Hodierno', 'adj.', 'Atual, dos dias de hoje.', 'Os desafios hodiernos pedem novas competências.', 'present-day', 'actual', 'actuel'],
+  ['Exímio', 'adj.', 'Que se destaca pela excelência.', 'É uma exímia árbitra de poomsae.', 'outstanding', 'eximio', 'excellent'],
+  ['Corroborar', 'v.', 'Confirmar; reforçar com provas.', 'Os dados corroboram a nossa hipótese.', 'to corroborate', 'corroborar', 'corroborer'],
+  ['Dirimir', 'v.', 'Resolver, esclarecer (dúvida ou conflito).', 'A reunião serviu para dirimir dúvidas.', 'to settle', 'dirimir', 'trancher'],
+  ['Fidelizar', 'v.', 'Tornar o cliente leal à marca.', 'Um bom atendimento ajuda a fidelizar clientes.', 'to build loyalty', 'fidelizar', 'fidéliser'],
+  ['Ímpeto', 's.m.', 'Impulso; força repentina.', 'Comece com ímpeto, mas mantenha o ritmo.', 'impetus', 'ímpetu', 'élan'],
+  ['Perene', 'adj.', 'Que dura muito tempo; contínuo.', 'Busque resultados perenes, não pontuais.', 'lasting', 'perenne', 'pérenne'],
+  ['Serendipidade', 's.f.', 'Descoberta feliz feita por acaso.', 'Conhecê-la no evento foi pura serendipidade.', 'serendipity', 'serendipia', 'sérendipité'],
+  ['Plenitude', 's.f.', 'Estado do que está completo, pleno.', 'Viver com plenitude exige equilíbrio.', 'fullness', 'plenitud', 'plénitude'],
+  ['Granularidade', 's.f.', 'Nível de detalhe com que algo é analisado.', 'Precisamos dos dados com mais granularidade.', 'granularity', 'granularidad', 'granularité'],
+  ['Benevolente', 'adj.', 'Que tem boa vontade; bondoso.', 'Uma liderança benevolente e exigente.', 'benevolent', 'benévolo', 'bienveillant'],
+  ['Hegemonia', 's.f.', 'Predominância, supremacia.', 'A marca perdeu a hegemonia no mercado.', 'hegemony', 'hegemonía', 'hégémonie'],
+  ['Interlocutor', 's.m.', 'Pessoa com quem se conversa ou negocia.', 'Ela é a principal interlocutora com o fornecedor.', 'counterpart', 'interlocutor', 'interlocuteur'],
+  ['Inferir', 'v.', 'Concluir a partir de indícios.', 'Dos números, podemos inferir uma tendência.', 'to infer', 'inferir', 'déduire'],
+  ['Austeridade', 's.f.', 'Rigor e contenção, especialmente com gastos.', 'Um mês de austeridade para reforçar a reserva.', 'austerity', 'austeridad', 'austérité'],
+  ['Ímpar', 'adj.', 'Único, sem igual.', 'Foi uma experiência ímpar.', 'unparalleled', 'sin igual', 'sans égal'],
+  ['Desvelar', 'v.', 'Revelar o que estava oculto.', 'A pesquisa desvelou um problema antigo.', 'to unveil', 'desvelar', 'dévoiler'],
+  ['Acurácia', 's.f.', 'Grau de proximidade do valor verdadeiro; exatidão.', 'A acurácia da previsão melhora com mais dados.', 'accuracy', 'exactitud', 'exactitude'],
+  ['Engajamento', 's.m.', 'Envolvimento ativo e comprometido.', 'O engajamento nas redes cresceu após o post.', 'engagement', 'compromiso', 'engagement']
+];
+function wordOfDay(dStr) {
+  const d = new Date((dStr || todayStr()) + 'T12:00:00');
+  const day = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000); // dias corridos: sem pulo na virada do ano
+  const w = WORDS_OF_DAY[day % WORDS_OF_DAY.length];
+  return { word: w[0], cls: w[1], def: w[2], ex: w[3], en: w[4], es: w[5], fr: w[6] };
+}
+function speakWord(text, lang) {
+  try {
+    if (!('speechSynthesis' in window)) { toast('Seu navegador não tem leitura em voz alta.', true); return; }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = lang; u.rate = 0.9;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+function openWordModal() {
+  const w = wordOfDay();
+  _ensureModal('modal-word', 'Palavra do dia', 520);
+  const sp = (t, l) => `<button class="btn-icon" title="Ouvir" onclick="speakWord(${JSON.stringify(t).replace(/"/g, '&quot;')},'${l}')">🔊</button>`;
+  document.getElementById('modal-word-title').textContent = '📖 Palavra do dia';
+  document.getElementById('modal-word-body').innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <span style="font-family:var(--font-display,serif);font-size:2rem;font-style:italic">${w.word}</span>
+      <span class="text-sm text-muted">${w.cls}</span>${sp(w.word, 'pt-BR')}
+    </div>
+    <div class="text-sm">${w.def}</div>
+    <div class="text-sm" style="border-left:3px solid var(--accent);padding:6px 12px;background:var(--surface2);border-radius:0 6px 6px 0"><em>"${w.ex}"</em></div>
+    <div style="display:grid;grid-template-columns:auto 1fr auto;gap:6px 12px;align-items:center" class="text-sm">
+      <span class="text-muted">Inglês</span><strong>${w.en}</strong>${sp(w.en, 'en-US')}
+      <span class="text-muted">Espanhol</span><strong>${w.es}</strong>${sp(w.es, 'es-ES')}
+      <span class="text-muted">Francês</span><strong>${w.fr}</strong>${sp(w.fr, 'fr-FR')}
+    </div>
+    <div class="text-xs text-muted">Desafio: use "${w.word.toLowerCase()}" hoje numa conversa, num e-mail ou num post.</div>`;
+  document.getElementById('modal-word-footer').innerHTML = `<button class="btn btn-primary" onclick="closeModal('modal-word')">Fechar</button>`;
+  openModal('modal-word');
+}
+
+// ── COMMAND CENTER ──
+function _ccFit(listId) {
+  // esconde o que não cabe no card e mostra "+N"
+  const box = document.getElementById(listId);
+  if (!box) return;
+  const more = box.parentElement.querySelector('.cc-more');
+  [...box.children].forEach(ch => ch.style.display = '');
+  if (more) more.style.display = 'none';
+  if (window.innerWidth < 1100) return;
+  const limit = box.clientHeight;
+  if (!limit) return;
+  let hidden = 0;
+  [...box.children].forEach(ch => {
+    if (ch.offsetTop - box.offsetTop + ch.offsetHeight > limit + 1) { ch.style.display = 'none'; hidden++; }
+  });
+  if (hidden && more) { more.textContent = `+${hidden} ${more.dataset.label || 'mais'}`; more.style.display = ''; }
+}
+function _ccFitAll() { ['cc-now-list', 'cc-ops-list', 'cc-agenda-list'].forEach(_ccFit); }
+window.addEventListener('resize', () => { if (currentPage === 'dashboard') requestAnimationFrame(_ccFitAll); });
+
+function _habitDoneOn(hId, dStr) {
+  return (STATE.habitLogs || []).some(l => l.habitId === hId && l.date === dStr && (l.done === true || l.done === 'true' || l.done === 1));
+}
+function _habitDueToday(h) {
+  if (h.active === false) return false;
+  const days = Array.isArray(h.days) ? h.days : (() => { try { return JSON.parse(h.days || '[]'); } catch (e) { return []; } })();
+  if (h.frequency === 'specific_days' && days.length) return days.includes(new Date().getDay());
+  return true;
+}
+
+function renderCommandCenter() {
+  const c = document.getElementById('page-dashboard');
+  if (!c) return;
+  c.classList.add('cc-page');
+  const today = todayStr();
+  const name = ((STATE.settings && STATE.settings.name) || '').split(' ')[0];
+  const d = new Date();
+  const dateFull = typeof formatDateFull === 'function' ? formatDateFull(d) : d.toLocaleDateString('pt-BR');
+  const w = wordOfDay();
+  const colors = { critical: 'var(--danger)', warn: 'var(--accent-amber)', suggest: 'var(--accent)', info: 'var(--text3)' };
+
+  // KPIs
+  const open = (STATE.tasks || []).filter(_taskOpen);
+  const overdue = open.filter(t => t.due && t.due < today);
+  const dueToday = open.filter(t => t.due === today);
+  const goalsActive = (STATE.goals || []).filter(g => !['achieved', 'abandoned', 'done', 'not_started'].includes(g.status));
+  const goalsAll = (STATE.goals || []).filter(g => !['achieved', 'abandoned', 'done'].includes(g.status));
+  const goalsRisk = goalsAll.filter(g => { const f = goalForecast(g); return f && f.risk; });
+  const habits = (STATE.habits || []).filter(_habitDueToday);
+  const habitsDone = habits.filter(h => _habitDoneOn(h.id, today));
+  const m = d.getMonth(), y = d.getFullYear();
+  const txns = typeof getMonthTxns === 'function' ? getMonthTxns(m, y) : [];
+  const income = txns.filter(t => t.type === 'income').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const expense = txns.filter(t => t.type === 'expense').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const bal = income - expense;
+  const inboxPend = (STATE.inbox || []).filter(i => i.status === 'pending').length;
+  const kpi = (label, value, sub, onclick, color) => `<div class="cc-kpi" onclick="${onclick}">
+      <div class="cc-kpi-label">${label}</div><div class="cc-kpi-value" style="${color ? 'color:' + color : ''}">${value}</div><div class="cc-kpi-sub">${sub}</div></div>`;
+  const kpis = [
+    kpi('Em atraso', overdue.length, overdue.length ? 'tarefas' : 'tudo em dia', "navigate('tasks')", overdue.length ? 'var(--danger)' : ''),
+    kpi('Vencem hoje', dueToday.length, `${open.length} abertas`, "navigate('tasks')"),
+    kpi('Metas', `${goalsActive.length}/${goalsAll.length}`, goalsRisk.length ? `${goalsRisk.length} em risco` : 'em andamento', "navigate('goals')", goalsRisk.length ? 'var(--accent-amber)' : ''),
+    kpi('Hábitos hoje', `${habitsDone.length}/${habits.length}`, 'feitos', "navigate('habits')"),
+    kpi(`Saldo ${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][m]}`, typeof fmtBRL === 'function' ? fmtBRL(bal).replace(/,\d\d$/, '') : Math.round(bal), `${typeof fmtBRL === 'function' ? fmtBRL(income).replace(/,\d\d$/, '') : income} entrou`, "navigate('financial')", bal < 0 ? 'var(--danger)' : 'var(--accent-green,#6A7860)'),
+    kpi('Inbox', inboxPend, inboxPend ? 'para classificar' : 'vazia', "navigate('inbox')", inboxPend ? 'var(--accent)' : '')
+  ].join('');
+
+  // O que faço agora
+  const now = whatNow();
+  const ctx = now.current ? `Agora: <strong>${_esc(now.current.title)}</strong> até ${_minToHM(now.current.e)}`
+    : now.next ? `<strong>${_fmtDur(now.windowMin)}</strong> livres até ${_esc(now.next.title)} (${_minToHM(now.next.s)})` : 'Sem compromissos pelo resto do dia';
+  const nowRows = now.picks.map((p, i) => {
+    const act = p.kind === 'task' ? `<button class="btn btn-primary btn-sm cc-btn" onclick="event.stopPropagation();toggleTask('${p.id}');setTimeout(renderDashboard,60)">✓</button>`
+      : p.kind === 'prep' ? `<button class="btn btn-primary btn-sm cc-btn" onclick="event.stopPropagation();openPrepModal('${p.id}')">Abrir</button>` : '';
+    const op = p.kind === 'task' ? `openTaskModal('${p.id}')` : p.kind === 'prep' ? `openPrepModal('${p.id}')` : `navigate('books')`;
+    return `<div class="cc-row" onclick="${op}"><div class="cc-num">${i + 1}</div><div class="cc-row-main"><div class="cc-row-title">${_esc(p.title)}</div><div class="cc-row-sub">${p.why.map(_esc).join(' · ')}</div></div>${act}</div>`;
+  }).join('') || '<div class="text-sm text-muted">Nada pendente agora.</div>';
+
+  // Hábitos
+  const habitChips = habits.map(h => {
+    const done = _habitDoneOn(h.id, today);
+    return `<button class="cc-habit${done ? ' done' : ''}" onclick="toggleHabitToday('${h.id}')" title="${done ? 'Feito — toque para desfazer' : 'Marcar como feito'}">${done ? '✓' : '○'} ${_esc(h.title)}</button>`;
+  }).join('') || '<span class="text-xs text-muted">Nenhum hábito para hoje.</span>';
+
+  // Inteligência Operacional (todos; o que não couber vira "+N")
+  const ops = opsIntelligence();
+  const opsRows = ops.map(it => `<div class="cc-row" ${it.action ? `onclick="${it.action}"` : ''}>
+      <div class="cc-sev" style="background:${colors[it.sev] || 'var(--text3)'}"></div>
+      <div class="cc-row-main"><div class="cc-row-title">${it.icon} ${_esc(it.title)}</div><div class="cc-row-sub">${_esc(it.detail || '')}</div></div>
+      ${it.quickBtn ? `<button class="btn btn-sm cc-btn" style="background:${colors[it.sev]};color:#fff;border:none" onclick="event.stopPropagation();${it.quickBtn.fn}">${_esc(it.quickBtn.label)}</button>` : ''}
+    </div>`).join('') || '<div class="text-sm text-muted">✓ Tudo em dia.</div>';
+
+  // Semana
+  const wk = new Date(today + 'T12:00:00'); const mon = _dateAdd(today, -((wk.getDay() + 6) % 7)); const sun = _dateAdd(mon, 6);
+  const doneWeek = (STATE.tasks || []).filter(t => t.completedAt && _localDateStr(new Date(Number(t.completedAt))) >= mon).length;
+  const escaped = open.filter(t => t.due && t.due >= mon && t.due <= sun && t.due < today).length;
+  const habWeekDone = (STATE.habitLogs || []).filter(l => l.date >= mon && l.date <= today && (l.done === true || l.done === 'true')).length;
+  const weekTx = (STATE.transactions || []).filter(t => t.status !== 'previsto' && t.date >= mon && t.date <= sun);
+  const weekBal = weekTx.reduce((s, t) => s + (t.type === 'income' ? 1 : t.type === 'expense' ? -1 : 0) * (Number(t.amount) || 0), 0);
+  const P = planWeek(0);
+  const weekMini = `<div class="cc-week">
+      <div><strong>${doneWeek}</strong><span>concluídas</span></div>
+      <div><strong style="${escaped ? 'color:var(--danger)' : ''}">${escaped}</strong><span>escaparam</span></div>
+      <div><strong>${habWeekDone}</strong><span>hábitos</span></div>
+      <div><strong style="color:${P.unplaced.length ? 'var(--danger)' : 'inherit'}">${P.freeMin ? Math.min(999, Math.round(P.taskMin / P.freeMin * 100)) : 0}%</strong><span>agenda ocupada</span></div>
+    </div>`;
+
+  // Agenda: hoje + 7 dias
+  const agendaRows = [];
+  for (let i = 0; i < 8 && agendaRows.length < 40; i++) {
+    const ds = _dateAdd(today, i);
+    const evs = getEventsForDate(ds).filter(e => !(i === 0 && e.end && e.end.slice(0, 10) === today && e.end.slice(11, 16) < _minToHM(_nowMin())));
+    if (!evs.length) continue;
+    const dd = new Date(ds + 'T12:00:00');
+    agendaRows.push(`<div class="cc-day">${i === 0 ? 'Hoje' : i === 1 ? 'Amanhã' : _WD[dd.getDay()] + ' ' + dd.getDate()}</div>`);
+    evs.forEach(e => {
+      const multi = e.start.slice(0, 10) !== ds;
+      agendaRows.push(`<div class="cc-ev" onclick="navigate('agenda')"><span class="cc-dot" style="background:${e.dim ? getDimColor(e.dim) : 'var(--text3)'}"></span><span class="cc-ev-time">${multi ? 'cont.' : formatTime(e.start) || 'dia'}</span><span class="cc-ev-title">${_esc(e.title)}</span></div>`);
+    });
+  }
+
+  c.innerHTML = `
+    <div class="cc-head">
+      <div><div class="cc-hello">Olá, ${_esc(name || 'você')} 👋</div><div class="text-xs text-muted">${dateFull}</div></div>
+      <div class="cc-word" onclick="openWordModal()" title="Ver exemplo, traduções e pronúncia">
+        <span class="cc-word-tag">📖 Palavra do dia</span>
+        <span class="cc-word-w">${w.word}</span>
+        <span class="cc-word-def">${w.def}</span>
+        <span class="cc-word-tr">EN ${w.en} · ES ${w.es} · FR ${w.fr}</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="openPerformanceModal()" style="border:1px solid var(--border);white-space:nowrap">◈ + Entrega</button>
+    </div>
+    <div class="cc-kpis">${kpis}</div>
+    <div class="cc-grid">
+      <div class="cc-col">
+        <div class="card cc-card cc-grow" style="border-left:3px solid var(--accent)">
+          <div class="cc-card-head"><span>⚡ O que eu faço agora?</span><button class="btn btn-ghost btn-sm cc-link" onclick="navigate('planner')">Semana →</button></div>
+          <div class="cc-ctx">${ctx}</div>
+          <div class="cc-list" id="cc-now-list">${nowRows}</div>
+          <a class="cc-more" data-label="tarefas" style="display:none" onclick="navigate('tasks')"></a>
+        </div>
+        <div class="card cc-card">
+          <div class="cc-card-head"><span>◉ Hábitos de hoje · ${habitsDone.length}/${habits.length}</span><button class="btn btn-ghost btn-sm cc-link" onclick="navigate('habits')">Ver →</button></div>
+          <div class="cc-habits">${habitChips}</div>
+        </div>
+      </div>
+      <div class="cc-col">
+        <div class="card cc-card cc-grow">
+          <div class="cc-card-head"><span>Inteligência Operacional</span><button class="btn btn-ghost btn-sm cc-link" onclick="navigate('insights')">✦ →</button></div>
+          <div class="cc-list" id="cc-ops-list">${opsRows}</div>
+          <a class="cc-more" data-label="alertas" style="display:none" onclick="openOpsAll()"></a>
+        </div>
+        <div class="card cc-card">
+          <div class="cc-card-head"><span>📊 Esta semana</span><button class="btn btn-ghost btn-sm cc-link" onclick="navigate('planner')">Planejar →</button></div>
+          ${weekMini}
+        </div>
+      </div>
+      <div class="cc-col">
+        <div class="card cc-card cc-grow">
+          <div class="cc-card-head"><span>◷ Agenda · 7 dias</span><button class="btn btn-ghost btn-sm cc-link" onclick="navigate('agenda')">Ver →</button></div>
+          <div class="cc-list" id="cc-agenda-list">${agendaRows.join('') || '<div class="text-sm text-muted">Nada marcado nos próximos 7 dias.</div>'}</div>
+          <a class="cc-more" data-label="compromissos" style="display:none" onclick="navigate('agenda')"></a>
+        </div>
+      </div>
+    </div>`;
+  requestAnimationFrame(() => requestAnimationFrame(_ccFitAll));
+}
+function openOpsAll() {
+  _ensureModal('modal-ops', 'Inteligência Operacional', 620);
+  document.getElementById('modal-ops-body').innerHTML = (function () {
+    const colors = { critical: 'var(--danger)', warn: 'var(--accent-amber)', suggest: 'var(--accent)', info: 'var(--text3)' };
+    return opsIntelligence().map(it => `<div class="item-row" ${it.action ? `style="cursor:pointer" onclick="closeModal('modal-ops');${it.action}"` : ''}>
+      <div style="width:4px;align-self:stretch;background:${colors[it.sev]};border-radius:2px;min-height:26px"></div>
+      <div class="item-content" style="padding-left:8px"><div class="item-title" style="font-size:.9rem">${it.icon} ${_esc(it.title)}</div><div class="text-xs text-muted">${_esc(it.detail || '')}</div></div></div>`).join('');
+  })();
+  document.getElementById('modal-ops-footer').innerHTML = `<button class="btn btn-primary" onclick="closeModal('modal-ops')">Fechar</button>`;
+  openModal('modal-ops');
+}
+renderDashboard = function () { renderCommandCenter(); };
 
 </script>
 <script>
