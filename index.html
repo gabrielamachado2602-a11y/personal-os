@@ -1832,12 +1832,12 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 <div class="modal-overlay hidden" id="modal-inbox-process">
   <div class="modal" style="max-width:420px">
     <div class="modal-header">
-      <span class="modal-title">Classificar item</span>
+      <span class="modal-title">Editar item</span>
       <button class="btn-icon" onclick="closeModal('modal-inbox-process')">✕</button>
     </div>
     <div class="form-group">
       <label class="form-label">Item</label>
-      <div id="inbox-process-text" class="form-input" style="min-height:50px;height:auto;white-space:pre-wrap"></div>
+      <textarea id="inbox-process-text" class="form-input" rows="3" style="min-height:60px;resize:vertical"></textarea>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1871,7 +1871,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
     <div class="modal-actions">
       <button class="btn btn-ghost" style="color:var(--danger)" onclick="deleteInboxItem()">Descartar</button>
       <button class="btn btn-ghost" onclick="closeModal('modal-inbox-process')">Cancelar</button>
-      <button class="btn btn-primary" onclick="processInboxItem()">Classificar</button>
+      <button class="btn btn-primary" onclick="processInboxItem()">Salvar</button>
     </div>
   </div>
 </div>
@@ -3797,7 +3797,7 @@ function renderInbox() {
     <div class="item-row" id="inbox-${i.id}">
       <div class="dim-indicator" style="background:${i.dim ? getDimColor(i.dim) : 'var(--border)'}"></div>
       <div class="item-content">
-        <div class="item-title" style="${i.status!=='pending'?'color:var(--text3)':''}">${linkify(i.text)}</div>
+        <div class="item-title" style="cursor:pointer;${i.status!=='pending'?'color:var(--text3)':''}" title="Toque para editar" onclick="if(event.target.closest('a'))return;openInboxProcess('${i.id}')">${linkify(i.text)}</div>
         <div class="item-meta">
           <span class="badge ${typeBadgeClass[i.type]||'badge-gray'}">${typeLabels[i.type]||i.type}</span>
           ${i.dim ? `<span class="text-xs text-muted">${getDimName(i.dim)}${i.sub ? ' › ' + getSubName(i.dim, i.sub) : ''}</span>` : ''}
@@ -3807,7 +3807,7 @@ function renderInbox() {
         </div>
       </div>
       <div class="item-actions">
-        <button class="btn-icon" title="Classificar" onclick="openInboxProcess('${i.id}')">✎</button>
+        <button class="btn-icon" title="Editar / classificar" onclick="openInboxProcess('${i.id}')">✎</button>
         <button class="btn-icon" title="Excluir" onclick="removeInboxItem('${i.id}')">✕</button>
       </div>
     </div>
@@ -4121,7 +4121,7 @@ function filterInbox(type, btn) {
 function openInboxProcess(id) {
   const item = STATE.inbox.find(i => i.id === id);
   if (!item) return;
-  document.getElementById('inbox-process-text').textContent = item.text;
+  document.getElementById('inbox-process-text').value = item.text || '';
   document.getElementById('inbox-process-type').value = item.type || 'pending';
   document.getElementById('inbox-process-due').value = item.due || '';
   document.getElementById('inbox-process-id').value = id;
@@ -4134,6 +4134,10 @@ function processInboxItem() {
   const id = document.getElementById('inbox-process-id').value;
   const item = STATE.inbox.find(i => i.id === id);
   if (!item) return;
+  const newText = (document.getElementById('inbox-process-text').value || '').trim();
+  if (!newText) { toast('O item não pode ficar vazio', true); return; }
+  const textChanged = newText !== item.text;
+  item.text = newText;
   item.type = document.getElementById('inbox-process-type').value;
   item.dim = document.getElementById('inbox-process-dim').value;
   item.sub = document.getElementById('inbox-process-sub').value;
@@ -4143,7 +4147,7 @@ function processInboxItem() {
   closeModal('modal-inbox-process');
   renderInbox();
   updateInboxBadge();
-  toast('Item classificado');
+  toast(item.type !== 'pending' ? 'Item salvo e classificado' : (textChanged ? 'Item atualizado' : 'Item salvo'));
 }
 
 function removeInboxItem(id) {
@@ -7935,7 +7939,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.36.1';
+const APP_VERSION = '3.36.2';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
