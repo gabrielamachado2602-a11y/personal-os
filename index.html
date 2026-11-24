@@ -7935,7 +7935,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.36.0';
+const APP_VERSION = '3.36.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -12931,7 +12931,11 @@ planWeek = function (offset) {
   const ordered = pool.filter(t => t.work).concat(pool.filter(t => !t.work));
   const unplaced = [], late = [];
   let taskMin = 0;
+  const waitingSkipped = [];
   for (const t of ordered) {
+    // "Aguardando": só ganha horário no próprio dia da entrega
+    const isWaiting = t.status === 'waiting';
+    if (isWaiting && (!t.due || !days.some(x => x.d === t.due))) { waitingSkipped.push(t); continue; }
     const eff = _taskDurH(t);
     const dur = Math.round((eff || 0.5) * 60);
     taskMin += dur;
@@ -12940,6 +12944,7 @@ planWeek = function (offset) {
       for (const day of days) {
         if (rem <= 0) break;
         if (maxDay && day.d > maxDay) break;
+        if (isWaiting && day.d !== t.due) continue;
         for (const b of (kind === 'w' ? day.wblocks : day.blocks)) {
           if (rem <= 0) break;
           const len = b.e - b.s;
@@ -12955,7 +12960,7 @@ planWeek = function (offset) {
     const due = t.due && t.due >= (days[0] || {}).d ? t.due : null;
     kinds.forEach(k => place(due, k));
     let isLate = false;
-    if (rem > 0 && t.due) { isLate = true; kinds.forEach(k => place(null, k)); }
+    if (rem > 0 && t.due && !isWaiting) { isLate = true; kinds.forEach(k => place(null, k)); }
     parts.forEach((p, i) => p.day.items.push({ task: t, s: p.s, e: p.e, inWork: p.w, part: parts.length > 1 ? `${i + 1}/${parts.length}` : '', late: isLate && p.day.d > (t.due || ''), assumed: !eff }));
     if (rem > 0) unplaced.push({ task: t, missing: rem, work: !!t.work });
     else if (isLate && parts.some(p => p.day.d > t.due)) late.push(t);
@@ -12964,7 +12969,7 @@ planWeek = function (offset) {
   const freeMin = days.reduce((s, d) => s + d.freeMin, 0);
   const postpone = (unplaced.length || late.length)
     ? [...pool].filter(t => !['urgent', 'high'].includes(t.priority)).sort((a, b) => sc(a) - sc(b)).slice(0, 2) : [];
-  return { mon, weekEnd, days, unplaced, late, later, taskMin, freeMin, postpone };
+  return { mon, weekEnd, days, unplaced, late, later, taskMin, freeMin, postpone, waitingSkipped };
 };
 function _planForDate(d) {
   const today = todayStr(); if (d < today) return null;
@@ -12994,6 +12999,7 @@ whatNow = function () {
   const hasWorkOpen = (STATE.tasks || []).some(t => t.work && _taskOpen(t));
   const cands = [];
   (STATE.tasks || []).filter(_taskOpen).forEach(t => {
+    if (t.status === 'waiting' && (!t.due || t.due > today)) return;
     const r = _scoreTask(t, windowMin, !!current);
     if (inWork) {
       if (t.work) { r.score += 15; r.why.unshift('do trabalho, no seu expediente'); }
