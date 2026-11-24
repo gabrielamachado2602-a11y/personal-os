@@ -1,7 +1,7 @@
-// Personal OS 2027 — Service Worker v3.31.0
+// Personal OS 2027 — Service Worker v3.32.0
 // Estratégia: REDE PRIMEIRO para o app (sempre pega a versão mais nova quando há internet),
 // cache só como reserva quando estiver offline.
-const CACHE_NAME = 'personal-os-v3.31.0';
+const CACHE_NAME = 'personal-os-v3.32.0';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', event => {
