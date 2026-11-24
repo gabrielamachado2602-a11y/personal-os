@@ -613,7 +613,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .hide-mobile{}
 @media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
 .plan-week{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-.plan-day{background:var(--surface2);border-radius:var(--radius);padding:10px;min-height:120px}
+.plan-day{background:var(--surface2);border-radius:var(--radius);padding:10px;min-height:120px;min-width:0;overflow-wrap:anywhere}
 .plan-day-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;gap:6px}
 .plan-busy{font-size:.7rem;color:var(--text3);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-item{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:6px 8px;margin-top:6px}
@@ -7967,7 +7967,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.0';
+const APP_VERSION = '3.39.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13334,7 +13334,7 @@ setInterval(_workBlockAutoMark, 10000);
 // ═══════════════════════════════════════════════════════════
 const RESERVE_HORIZON_DAYS = 14;
 function _reserveCfg() { const p = (STATE.settings && STATE.settings.planner) || {}; return { margin: p.margin != null ? Number(p.margin) : 2, auto: p.autoReserve !== false }; }
-function _taskNeedMin(t) { const h = _taskDurH(t); return Math.round((h || 0.5) * 60); }
+function _taskNeedMin(t) { const h = _taskDurH(t); return Math.max(15, Math.round((h || 0.5) * 60)); } // mínimo de 15 min por tarefa
 function _futureTaskEvents(taskId) {
   const now = Date.now();
   return (STATE.events || []).filter(e => e.taskId === taskId && e.start && e.start.length > 10 && new Date(e.end || e.start).getTime() > now);
@@ -13403,16 +13403,21 @@ planWeek = function (offset) {
     // não antecipa demais: começa no máximo 7 dias antes do prazo interno (deixa espaço para o que surgir)
     const earliest = target && !isWaiting ? _dateAdd(target, -7) : null;
     // 1) até o prazo interno (prazo − margem)  2) dentro da margem  3) depois do prazo (só se já venceu dentro da semana)
-    if (target) kinds.forEach(k => place(target, k));
-    if (rem > 0 && due) kinds.forEach(k => place(due, k));
-    if (!t.due) kinds.forEach(k => place(null, k));
+    // já venceu: reserva o quanto antes (não é "depois do prazo", é recuperar o atraso)
+    const overdue = !!(t.due && t.due < today && !isWaiting);
+    if (overdue) kinds.forEach(k => place(null, k));
+    else {
+      if (target) kinds.forEach(k => place(target, k));
+      if (rem > 0 && due) kinds.forEach(k => place(due, k));
+      if (!t.due) kinds.forEach(k => place(null, k));
+    }
     const dueThisWeek = !t.due || t.due <= weekEnd;
     let isLate = false;
-    if (rem > 0 && t.due && !isWaiting && t.due <= weekEnd) { isLate = true; kinds.forEach(k => place(null, k)); }
+    if (!overdue && rem > 0 && t.due && !isWaiting && t.due <= weekEnd) { isLate = true; kinds.forEach(k => place(null, k)); }
     // tarefa com prazo depois desta semana: o que não coube fica para a semana seguinte (não é "não cabe")
     if (!dueThisWeek && rem > 0 && parts.length === 0) continue;
     taskMin += dur - (dueThisWeek ? 0 : rem);
-    parts.forEach((p, i) => p.day.items.push({ task: t, s: p.s, e: p.e, inWork: p.w, part: parts.length > 1 ? `${i + 1}/${parts.length}` : '', late: isLate && p.day.d > (t.due || ''), inMargin: !!(target && p.day.d > target && p.day.d <= (t.due || '')), assumed: !eff }));
+    parts.forEach((p, i) => p.day.items.push({ task: t, s: p.s, e: p.e, inWork: p.w, part: parts.length > 1 ? `${i + 1}/${parts.length}` : '', late: isLate && p.day.d > (t.due || ''), overdue, inMargin: !!(target && p.day.d > target && p.day.d <= (t.due || '')), assumed: !eff }));
     if (rem > 0 && dueThisWeek) unplaced.push({ task: t, missing: rem, work: !!t.work });
     else if (isLate && parts.some(p => p.day.d > t.due)) late.push(t);
   }
@@ -13479,12 +13484,13 @@ function autoReserve(silent) {
       const P = planWeek(off);
       P.days.forEach(day => day.items.forEach(it => {
         const t = it.task;
-        if (!t.due || !(Number(t.effort) > 0) || t.reserveOff || it.late) return;
-        if (it.inWork && !t.work) return; // encaixe pessoal no expediente fica só como sugestão
+        if (!t.due || t.reserveOff || it.late) return;
+        if (it.inWork && !t.work && !(it.overdue || (_daysUntil(t.due) ?? 99) <= 3)) return; // encaixe pessoal no expediente: só se o prazo está perto
+        if (!(Number(t.effort) > 0)) it.assumed = true;
         const hadPast = (STATE.events || []).some(e => e.taskId === t.id && e.autoReserved && new Date(e.end || e.start).getTime() <= now);
         const ev = _planEvent(t.id, day.d, it.s, it.e);
         if (!ev) return;
-        ev.autoReserved = true; ev.notes = 'Reserva automática do Planejador (prazo interno = prazo − margem). Pode mover ou apagar.';
+        ev.autoReserved = true; ev.notes = 'Reserva automática do Planejador (prazo interno = prazo − margem). Pode mover ou apagar.' + (it.assumed ? ' Sem estimativa na tarefa: reservei 30 min — ajuste o esforço estimado.' : '') + (it.overdue ? ' A tarefa já venceu: reservei o primeiro horário livre.' : '');
         if (t.work) ev.work = true;
         map[ev.id] = { t: t.id, end: new Date(ev.end).getTime() };
         created++; changed = true;
@@ -13879,6 +13885,48 @@ renderSubAreaPage = function (subId) {
   const hostHTML = '<div id="sub-books-host" class="mb-4"></div>';
   if (anchor) anchor.insertAdjacentHTML('afterend', hostHTML); else page.insertAdjacentHTML('afterbegin', hostHTML);
   renderBooks();
+};
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.39.1 — POR QUE UMA TAREFA COM PRAZO NÃO ESTÁ NA AGENDA?
+// ═══════════════════════════════════════════════════════════
+function reserveDiagnosis() {
+  const now = Date.now(), today = todayStr(), cfg = _reserveCfg();
+  const P0 = planWeek(0), P1 = planWeek(1);
+  const planned = new Map();
+  [P0, P1].forEach(P => P.days.forEach(d => d.items.forEach(i => { if (!planned.has(i.task.id)) planned.set(i.task.id, i); })));
+  const unpl = new Set(P0.unplaced.map(u => u.task.id));
+  const out = [];
+  (STATE.tasks || []).filter(t => _taskOpen(t) && t.due).sort((a, b) => a.due.localeCompare(b.due)).forEach(t => {
+    const fut = _futureReservedMin(t.id), need = _taskNeedMin(t);
+    if (fut > 0 && fut >= need - 5) return; // já reservada
+    let why;
+    if (t.status === 'waiting') why = t.due === today || t.due > today ? `Aguardando: só ganha horário no dia da entrega (${formatDate(t.due)})` : 'Aguardando e com prazo vencido: atualize o status ou o prazo';
+    else if (!cfg.auto) why = 'A reserva automática está desligada';
+    else if (!_canAutoReserve()) why = 'Esperando sincronizar com o Drive neste aparelho (toque em "Reconectar Drive")';
+    else if (t.reserveOff) why = 'Você apagou a reserva desta tarefa: toque em ↺ para reservar de novo';
+    else if (unpl.has(t.id)) why = 'Não coube: a agenda está cheia até o prazo (libere um horário ou mude o prazo)';
+    else {
+      const it = planned.get(t.id);
+      if (it && it.inWork && !t.work) why = 'Só caberia dentro do expediente — fica como sugestão até faltarem 3 dias';
+      else if (it && it.late) why = 'Só cabe depois do prazo';
+      else if (!it) { const start = _dateAdd(_dateAdd(t.due, -cfg.margin), -7); why = start > today ? `Prazo distante: começo a reservar em ${formatDate(start)}` : 'Fora do período planejado (próximas 2 semanas)'; }
+      else why = 'Vai ser reservada no próximo minuto';
+    }
+    out.push({ t, why, fut, need });
+  });
+  return out;
+}
+const _origRenderPlannerDiag = renderPlanner;
+renderPlanner = function () {
+  _origRenderPlannerDiag();
+  const c = document.getElementById('page-planner'); if (!c) return;
+  const list = reserveDiagnosis();
+  if (!list.length) return;
+  c.insertAdjacentHTML('beforeend', `<div class="card mt-4"><div class="font-semibold mb-2">🔎 Tarefas com prazo ainda sem horário na Agenda</div>
+    ${list.map(x => `<div class="item-row"><div class="item-content" style="cursor:pointer" onclick="editTask('${x.t.id}')"><div class="item-title" style="font-size:.88rem">${_esc(x.t.title)} <span class="text-xs text-muted">· prazo ${formatDate(x.t.due)}${x.fut ? ` · ${_fmtMinShort(x.fut)} de ${_fmtMinShort(x.need)} reservados` : ''}</span></div><div class="text-xs" style="color:var(--text2)">${_esc(x.why)}${x.t.reserveOff ? ` <a href="#" onclick="event.preventDefault();event.stopPropagation();reserveAgain('${x.t.id}')">↺</a>` : ''}</div></div></div>`).join('')}
+  </div>`);
 };
 
 </script>
