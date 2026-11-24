@@ -618,6 +618,14 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .plan-busy{font-size:.7rem;color:var(--text3);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-item{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:6px 8px;margin-top:6px}
 .plan-item.late{border-left-color:var(--danger)}
+.plan-item{cursor:pointer}
+.plan-item:hover{box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.plan-item.reserved{background:color-mix(in srgb,var(--accent) 12%,var(--surface));border-color:color-mix(in srgb,var(--accent) 35%,var(--border));border-left-color:var(--accent)}
+.plan-item.reserved.done{opacity:.6}
+.plan-item.reserved.done div:nth-child(2){text-decoration:line-through}
+.plan-item.suggested{border-style:dashed;border-left-style:solid}
+.plan-item-acts{display:flex;gap:2px;align-items:center;margin-top:2px}
+.plan-item-acts .btn-icon{padding:2px 5px;font-size:.78rem}
 @media(max-width:768px){.plan-week{grid-template-columns:1fr}}
 .book-stars{font-size:1rem;letter-spacing:1px;white-space:nowrap;margin-right:6px}
 @media(max-width:768px){.pipe-board{grid-auto-columns:82%}}
@@ -7967,7 +7975,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.2';
+const APP_VERSION = '3.39.3';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -10885,19 +10893,37 @@ function renderPlanner() {
   const over = P.unplaced.length || P.late.length;
   const dayCol = (day) => {
     const dt = new Date(day.d + 'T12:00:00');
-    const busy = busyIntervals(day.d).filter(b => !isWorkBlock(b.ev) && b.e > _hmToMin(cfg.dayStart) && b.s < _hmToMin(cfg.dayEnd));
+    const allBusy = busyIntervals(day.d).filter(b => !isWorkBlock(b.ev) && b.e > _hmToMin(cfg.dayStart) && b.s < _hmToMin(cfg.dayEnd));
+    const busy = allBusy.filter(b => !b.ev.taskId);
+    // tarefas já reservadas na Agenda (⚡) aparecem como cartões destacados e clicáveis, junto com as sugestões
+    const reservedCards = allBusy.filter(b => b.ev.taskId && (STATE.tasks || []).some(t => t.id === b.ev.taskId)).map(b => {
+      const t = (STATE.tasks || []).find(x => x.id === b.ev.taskId);
+      const s0 = _hmToMin(b.ev.start.slice(11, 16)), e0 = _hmToMin((b.ev.end || b.ev.start).slice(11, 16));
+      const done = t.status === 'done', run = _activeTimer() && _activeTimer().taskId === t.id;
+      const overdueT = t.due && t.due < todayStr();
+      const after = t.due && day.d > t.due && !overdueT;
+      return { s: s0, html: `<div class="plan-item reserved${done ? ' done' : ''}${after ? ' late' : ''}" onclick="editTask('${t.id}')" title="Abrir a tarefa">
+          <div class="text-xs" style="opacity:.75">${_minToHM(s0)}–${_minToHM(e0)} · ${b.ev.autoReserved ? '📅 reservado' : '📅 na agenda'}${t.due ? ` · prazo ${formatDate(t.due)}` : ''}${after ? ' · depois do prazo' : ''}${overdueT && !done ? ' · <span style="color:var(--danger)">atrasada</span>' : ''}</div>
+          <div style="font-size:.85rem;font-weight:500">${t.work ? '💼 ' : ''}${_esc(t.title)}</div>
+          <div class="plan-item-acts" onclick="event.stopPropagation()">
+            ${done ? '<span class="text-xs" style="color:var(--success)">✓ concluída</span>' : `<button class="btn-icon timer-btn${run ? ' on' : ''}" title="Cronometrar" onclick="timerToggle('${t.id}');renderPlanner()">${run ? '■' : '▶'}</button><button class="btn-icon" title="Concluir" onclick="toggleTask('${t.id}');renderPlanner()">✓</button>`}
+            <button class="btn-icon" title="Tirar da agenda" onclick="planUnreserve('${b.ev.id}')">✕</button>
+          </div>
+        </div>` };
+    });
+    const sugCards = day.items.map(it => ({ s: it.s, it }));
     const WD = workDay(day.d);
     return `<div class="plan-day">
       <div class="plan-day-head"><strong>${_WD[dt.getDay()]} ${dt.getDate()}</strong><span class="text-xs text-muted">${_fmtDur(day.freeMin)} livres</span></div>
       ${WD ? `<div class="plan-work" onclick="_wdDate='${day.d}';navigate('workday')" title="Abrir o expediente">💼 ${_minToHM(WD.blocks[0].s)}–${_minToHM(WD.blocks[WD.blocks.length - 1].e)} · ${_fmtDur(day.workFreeMin || 0)} livres no expediente</div>` : ''}
       ${busy.slice(0, 6).map(b => `<div class="plan-busy">${_minToHM(Math.max(b.s, 0))}–${_minToHM(b.e)} ${_esc(b.title)}</div>`).join('')}
-      ${day.items.map(it => `<div class="plan-item${it.late ? ' late' : ''}">
+      ${reservedCards.concat(sugCards).sort((a, b) => a.s - b.s).map(x => x.html || (it => `<div class="plan-item suggested${it.late ? ' late' : ''}" onclick="editTask('${it.task.id}')" title="Abrir a tarefa">
           <div class="text-xs" style="opacity:.75">${_minToHM(it.s)}–${_minToHM(it.e)}${it.part ? ` · parte ${it.part}` : ''}${it.late ? ' · depois do prazo' : ''}</div>
           <div style="font-size:.85rem;font-weight:500">${it.task.work ? '💼 ' : ''}${_esc(it.task.title)}</div>
           ${it.inWork && !it.task.work ? '<div class="text-xs" style="opacity:.7">encaixe no expediente</div>' : ''}
           ${it.assumed ? '<div class="text-xs" style="opacity:.7">sem estimativa: considerei 30 min</div>' : ''}
-          <button class="btn btn-ghost btn-sm" style="padding:1px 6px;margin-top:4px;font-size:.7rem" onclick="planToAgenda('${it.task.id}','${day.d}',${it.s},${it.e})">📅 Agenda</button>
-        </div>`).join('') || `<div class="text-xs text-muted" style="padding:4px 0">${day.freeMin ? 'tempo livre' : 'dia cheio'}</div>`}
+          <button class="btn btn-ghost btn-sm" style="padding:1px 6px;margin-top:4px;font-size:.7rem" onclick="event.stopPropagation();planToAgenda('${it.task.id}','${day.d}',${it.s},${it.e})">📅 Agenda</button>
+        </div>`)(x.it)).join('') || `<div class="text-xs text-muted" style="padding:4px 0">${day.freeMin ? 'tempo livre' : 'dia cheio'}</div>`}
     </div>`;
   };
   c.innerHTML = `
@@ -13929,6 +13955,17 @@ renderPlanner = function () {
     ${list.map(x => `<div class="item-row"><div class="item-content" style="cursor:pointer" onclick="editTask('${x.t.id}')"><div class="item-title" style="font-size:.88rem">${_esc(x.t.title)} <span class="text-xs text-muted">· prazo ${formatDate(x.t.due)}${x.fut ? ` · ${_fmtMinShort(x.fut)} de ${_fmtMinShort(x.need)} reservados` : ''}</span></div><div class="text-xs" style="color:var(--text2)">${_esc(x.why)}${x.t.reserveOff ? ` <a href="#" onclick="event.preventDefault();event.stopPropagation();reserveAgain('${x.t.id}')">↺</a>` : ''}</div></div></div>`).join('')}
   </div>`);
 };
+
+
+// v3.39.3 — tirar uma reserva da agenda pelo Planejador (conta como "você apagou": não recria sozinha)
+function planUnreserve(eventId) {
+  const ev = (STATE.events || []).find(e => e.id === eventId); if (!ev) return;
+  STATE.events = STATE.events.filter(e => e.id !== eventId);
+  const t = (STATE.tasks || []).find(x => x.id === ev.taskId);
+  if (t && ev.autoReserved) { t.reserveOff = true; t.updatedAt = Date.now(); if (STATE.settings.autoReserveIds) delete STATE.settings.autoReserveIds[eventId]; }
+  save(); renderPlanner();
+  gcUndoToast('Reserva tirada da agenda', () => { STATE.events.push(ev); if (t) t.reserveOff = false; save(); renderPlanner(); });
+}
 
 </script>
 <script>
