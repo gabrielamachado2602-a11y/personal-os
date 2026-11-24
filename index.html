@@ -7939,7 +7939,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.36.2';
+const APP_VERSION = '3.37.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13295,6 +13295,261 @@ function _workBlockAutoMark() {
 }
 setTimeout(_workBlockAutoMark, 1500);
 setInterval(_workBlockAutoMark, 10000);
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.37.0 — RESERVA ANTECIPADA COM MARGEM DE SEGURANÇA
+//  planner.margin (dias antes do prazo, padrão 2) · planner.autoReserve (padrão ligado)
+//  event.autoReserved = bloco ⚡ criado sozinho · settings.autoReserveIds = {eventId: taskId}
+//  task.reserveOff = você apagou uma reserva automática → o app não recria (só sugere)
+// ═══════════════════════════════════════════════════════════
+const RESERVE_HORIZON_DAYS = 14;
+function _reserveCfg() { const p = (STATE.settings && STATE.settings.planner) || {}; return { margin: p.margin != null ? Number(p.margin) : 2, auto: p.autoReserve !== false }; }
+function _taskNeedMin(t) { const h = _taskDurH(t); return Math.round((h || 0.5) * 60); }
+function _futureTaskEvents(taskId) {
+  const now = Date.now();
+  return (STATE.events || []).filter(e => e.taskId === taskId && e.start && e.start.length > 10 && new Date(e.end || e.start).getTime() > now);
+}
+function _futureReservedMin(taskId) {
+  const now = Date.now();
+  return _futureTaskEvents(taskId).reduce((s, e) => { const a = Math.max(now, new Date(e.start).getTime()), b = new Date(e.end || e.start).getTime(); return s + Math.max(0, (b - a) / 60000); }, 0);
+}
+
+// Planejador: olha 2 semanas à frente, tenta terminar X dias antes do prazo e só planeja o que falta reservar
+planWeek = function (offset) {
+  const today = todayStr();
+  const t0 = new Date(today + 'T12:00:00');
+  const mon = _dateAdd(today, -((t0.getDay() + 6) % 7) + 7 * (offset || 0));
+  const { margin } = _reserveCfg();
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = _dateAdd(mon, i);
+    if (d < today) continue;
+    const from = d === today ? Math.ceil((_nowMin() + 10) / 15) * 15 : null;
+    const blocks = freeBlocks(d, from).map(b => ({ ...b, w: false }));
+    const wblocks = workGaps(d, from).map(b => ({ ...b, w: true }));
+    const pf = blocks.reduce((s, b) => s + b.e - b.s, 0), wf = wblocks.reduce((s, b) => s + b.e - b.s, 0);
+    days.push({ d, blocks, wblocks, freeMin: pf + wf, workFreeMin: wf, personalFreeMin: pf, hasWork: !!workDay(d), items: [] });
+  }
+  const weekEnd = _dateAdd(mon, 6);
+  const horizon = _dateAdd(weekEnd > today ? weekEnd : today, RESERVE_HORIZON_DAYS);
+  const open = (STATE.tasks || []).filter(_taskOpen);
+  const need = {}; open.forEach(t => { need[t.id] = Math.max(0, _taskNeedMin(t) - _futureReservedMin(t.id)); });
+  const isPool = t => need[t.id] >= 15 && (!t.due || t.due <= horizon || ['urgent', 'high'].includes(t.priority));
+  const pool = open.filter(isPool);
+  const later = open.filter(t => !pool.includes(t) && need[t.id] >= 15);
+  const sc = (t) => _scoreTask(t, null, false).score;
+  pool.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || sc(b) - sc(a));
+  const ordered = pool.filter(t => t.work).concat(pool.filter(t => !t.work));
+  const unplaced = [], late = [], waitingSkipped = [];
+  let taskMin = 0;
+  for (const t of ordered) {
+    const isWaiting = t.status === 'waiting';
+    if (isWaiting && (!t.due || !days.some(x => x.d === t.due))) { waitingSkipped.push(t); continue; }
+    if (t.due && t.due > weekEnd && !days.length) continue;
+    const dur = need[t.id];
+    const eff = _taskDurH(t);
+    let rem = dur; const parts = [];
+    const place = (maxDay, kind) => {
+      for (const day of days) {
+        if (rem <= 0) break;
+        if (maxDay && day.d > maxDay) break;
+        if (isWaiting && day.d !== t.due) continue;
+        if (earliest && day.d < earliest) continue;
+        for (const b of (kind === 'w' ? day.wblocks : day.blocks)) {
+          if (rem <= 0) break;
+          const len = b.e - b.s;
+          if (len <= 0) continue;
+          const chunk = Math.min(rem, len);
+          if (chunk < rem && chunk < 30) continue;
+          parts.push({ day, s: b.s, e: b.s + chunk, w: kind === 'w' });
+          b.s += chunk; rem -= chunk;
+        }
+      }
+    };
+    const kinds = t.work ? ['w'] : ['p', 'w'];
+    const first = (days[0] || {}).d;
+    const due = t.due && first && t.due >= first ? t.due : null;
+    const target = due && !isWaiting ? (_dateAdd(due, -margin) >= first ? _dateAdd(due, -margin) : first) : due;
+    // não antecipa demais: começa no máximo 7 dias antes do prazo interno (deixa espaço para o que surgir)
+    const earliest = target && !isWaiting ? _dateAdd(target, -7) : null;
+    // 1) até o prazo interno (prazo − margem)  2) dentro da margem  3) depois do prazo (só se já venceu dentro da semana)
+    if (target) kinds.forEach(k => place(target, k));
+    if (rem > 0 && due) kinds.forEach(k => place(due, k));
+    if (!t.due) kinds.forEach(k => place(null, k));
+    const dueThisWeek = !t.due || t.due <= weekEnd;
+    let isLate = false;
+    if (rem > 0 && t.due && !isWaiting && t.due <= weekEnd) { isLate = true; kinds.forEach(k => place(null, k)); }
+    // tarefa com prazo depois desta semana: o que não coube fica para a semana seguinte (não é "não cabe")
+    if (!dueThisWeek && rem > 0 && parts.length === 0) continue;
+    taskMin += dur - (dueThisWeek ? 0 : rem);
+    parts.forEach((p, i) => p.day.items.push({ task: t, s: p.s, e: p.e, inWork: p.w, part: parts.length > 1 ? `${i + 1}/${parts.length}` : '', late: isLate && p.day.d > (t.due || ''), inMargin: !!(target && p.day.d > target && p.day.d <= (t.due || '')), assumed: !eff }));
+    if (rem > 0 && dueThisWeek) unplaced.push({ task: t, missing: rem, work: !!t.work });
+    else if (isLate && parts.some(p => p.day.d > t.due)) late.push(t);
+  }
+  days.forEach(d => d.items.sort((a, b) => a.s - b.s));
+  const freeMin = days.reduce((s, d) => s + d.freeMin, 0);
+  const postpone = (unplaced.length || late.length)
+    ? [...pool].filter(t => !['urgent', 'high'].includes(t.priority) && (!t.due || t.due <= weekEnd)).sort((a, b) => sc(a) - sc(b)).slice(0, 2) : [];
+  return { mon, weekEnd, days, unplaced, late, later, taskMin, freeMin, postpone, waitingSkipped, margin };
+};
+
+// ── Reserva automática na Agenda ──
+let _autoReserveBusy = false;
+function _canAutoReserve() {
+  let driveOn = false; try { driveOn = localStorage.getItem('personalOS_driveEnabled') === '1'; } catch (e) {}
+  return !driveOn || _driveHasPulled; // com Drive ligado, só depois de baixar (evita reservas duplicadas entre aparelhos)
+}
+function _trackAutoIds() {
+  // reserva automática que sumiu sem a tarefa ter sido concluída = você apagou → não recriar
+  const map = STATE.settings.autoReserveIds = STATE.settings.autoReserveIds || {};
+  const ids = new Set((STATE.events || []).map(e => e.id));
+  let changed = false;
+  Object.keys(map).forEach(eid => {
+    if (ids.has(eid)) return;
+    const t = (STATE.tasks || []).find(x => x.id === map[eid].t);
+    if (t && _taskOpen(t) && map[eid].end > Date.now()) { t.reserveOff = true; t.updatedAt = Date.now(); }
+    delete map[eid]; changed = true;
+  });
+  return changed;
+}
+function _dropAutoEvents(taskId, onlyFuture = true) {
+  const now = Date.now(), map = STATE.settings.autoReserveIds || {};
+  const before = STATE.events.length;
+  STATE.events = STATE.events.filter(e => {
+    const drop = e.taskId === taskId && e.autoReserved && (!onlyFuture || new Date(e.start).getTime() > now);
+    if (drop) delete map[e.id];
+    return !drop;
+  });
+  return before - STATE.events.length;
+}
+function autoReserve(silent) {
+  if (_autoReserveBusy || !STATE.settings || !_reserveCfg().auto || !_canAutoReserve()) return { created: 0 };
+  _autoReserveBusy = true;
+  try {
+    let changed = _trackAutoIds();
+    const map = STATE.settings.autoReserveIds;
+    const now = Date.now();
+    // 1) limpeza: reservas futuras de tarefa concluída/cancelada/apagada, depois do prazo novo, ou além do necessário (duplicadas)
+    const byTask = {};
+    (STATE.events || []).forEach(e => { if (e.autoReserved && e.taskId && new Date(e.start).getTime() > now) (byTask[e.taskId] = byTask[e.taskId] || []).push(e); });
+    Object.entries(byTask).forEach(([tid, evs]) => {
+      const t = (STATE.tasks || []).find(x => x.id === tid);
+      if (!t || !_taskOpen(t)) { changed = _dropAutoEvents(tid) > 0 || changed; return; }
+      const bad = evs.filter(e => t.due && e.start.slice(0, 10) > t.due);
+      let total = _futureReservedMin(tid);
+      const needAll = _taskNeedMin(t);
+      const extra = evs.filter(e => !bad.includes(e)).sort((a, b) => (b.created || 0) - (a.created || 0));
+      const drop = new Set(bad.map(e => e.id));
+      for (const e of extra) { if (total - needAll < 15) break; const m = (new Date(e.end) - new Date(e.start)) / 60000; if (total - m < needAll - 5) break; total -= m; drop.add(e.id); }
+      if (drop.size) { STATE.events = STATE.events.filter(e => !drop.has(e.id)); drop.forEach(id => delete map[id]); changed = true; }
+    });
+    // 2) reservar: tarefas com prazo e estimativa, desta semana e da próxima
+    let created = 0; const moved = [];
+    for (const off of [0, 1]) {
+      const P = planWeek(off);
+      P.days.forEach(day => day.items.forEach(it => {
+        const t = it.task;
+        if (!t.due || !(Number(t.effort) > 0) || t.reserveOff || it.late) return;
+        if (it.inWork && !t.work) return; // encaixe pessoal no expediente fica só como sugestão
+        const hadPast = (STATE.events || []).some(e => e.taskId === t.id && e.autoReserved && new Date(e.end || e.start).getTime() <= now);
+        const ev = _planEvent(t.id, day.d, it.s, it.e);
+        if (!ev) return;
+        ev.autoReserved = true; ev.notes = 'Reserva automática do Planejador (prazo interno = prazo − margem). Pode mover ou apagar.';
+        if (t.work) ev.work = true;
+        map[ev.id] = { t: t.id, end: new Date(ev.end).getTime() };
+        created++; changed = true;
+        if (hadPast && !moved.includes(t.title)) moved.push(t.title);
+      }));
+    }
+    if (changed) save();
+    if (!silent && (created || moved.length)) {
+      toast(moved.length ? `🔁 Remarquei "${moved[0]}"${moved.length > 1 ? ` e mais ${moved.length - 1}` : ''}: a reserva passou e a tarefa continua aberta` : `📅 ${created} horário(s) reservado(s) na Agenda para tarefas com prazo`);
+    }
+    if (changed) { if (currentPage === 'agenda' && !document.getElementById('gc-pop')) renderAgenda(); else if (currentPage === 'planner') _origRenderPlannerAR(); else if (currentPage === 'workday') renderWorkday(); else if (currentPage === 'dashboard') renderDashboard(); }
+    return { created, moved };
+  } catch (err) { console.warn('reserva automática', err); return { created: 0 }; }
+  finally { _autoReserveBusy = false; }
+}
+setTimeout(() => autoReserve(false), 2500);
+setInterval(() => autoReserve(false), 60000);
+
+// concluir/excluir tarefa libera as reservas futuras; editar prazo/estimativa reativa a reserva automática
+const _origToggleTaskAR = toggleTask;
+toggleTask = function (id) {
+  const r = _origToggleTaskAR.apply(this, arguments);
+  const t = (STATE.tasks || []).find(x => x.id === id);
+  if (t && !_taskOpen(t)) { if (_dropAutoEvents(id) > 0) { save(); toast('Reservas futuras da tarefa liberadas na agenda'); } }
+  else if (t) setTimeout(() => autoReserve(true), 50);
+  return r;
+};
+const _origSaveTaskAR = saveTask;
+saveTask = function () {
+  const id = (document.getElementById('task-edit-id') || {}).value;
+  const prev = id && (STATE.tasks || []).find(x => x.id === id);
+  const before = prev ? { due: prev.due, effort: prev.effort } : null;
+  const r = _origSaveTaskAR.apply(this, arguments);
+  const t = id ? (STATE.tasks || []).find(x => x.id === id) : null;
+  if (t && before && (before.due !== t.due || String(before.effort) !== String(t.effort))) { t.reserveOff = false; }
+  if (t && !_taskOpen(t)) _dropAutoEvents(t.id);
+  setTimeout(() => autoReserve(false), 50);
+  return r;
+};
+if (typeof deleteTask === 'function') {
+  const _origDeleteTaskAR = deleteTask;
+  deleteTask = function (id) { const r = _origDeleteTaskAR.apply(this, arguments); if (!(STATE.tasks || []).some(x => x.id === id)) { if (_dropAutoEvents(id, true) > 0) save(); } return r; };
+}
+// reservar manualmente (📅) reativa a reserva automática da tarefa
+const _origPlanToAgendaAR = planToAgenda;
+planToAgenda = function (taskId) { const t = (STATE.tasks || []).find(x => x.id === taskId); if (t && t.reserveOff) { t.reserveOff = false; } return _origPlanToAgendaAR.apply(this, arguments); };
+function reserveAgain(taskId) { const t = (STATE.tasks || []).find(x => x.id === taskId); if (!t) return; t.reserveOff = false; t.updatedAt = Date.now(); save(); autoReserve(false); renderPlanner(); }
+function setReserveCfg(k, v) { STATE.settings.planner = { ...(STATE.settings.planner || {}), [k]: v }; save(); if (k === 'autoReserve' && v) autoReserve(false); renderPlanner(); }
+
+// Planejador: margem, reserva automática e marcas nos itens
+const _origRenderPlannerAR = renderPlanner;
+renderPlanner = function () {
+  _origRenderPlannerAR();
+  const c = document.getElementById('page-planner'); if (!c) return;
+  const cfg = _reserveCfg();
+  const card = c.querySelector('.card');
+  if (card && !card.querySelector('.reserve-cfg')) card.insertAdjacentHTML('beforeend', `<div class="reserve-cfg text-sm mt-2">
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${cfg.auto ? 'checked' : ''} onchange="setReserveCfg('autoReserve',this.checked)"> 📅 Reservar automaticamente na Agenda as tarefas com prazo e estimativa</label>
+      <label style="display:flex;gap:6px;align-items:center">🛡 Terminar <input type="number" min="0" max="7" value="${cfg.margin}" class="form-input" style="width:56px;padding:2px 6px" onchange="setReserveCfg('margin',Math.max(0,Math.min(7,Number(this.value)||0)))"> dia(s) antes do prazo (margem para imprevistos)</label>
+    </div>`);
+  // reservas automáticas futuras, por tarefa
+  const now = Date.now();
+  const res = (STATE.events || []).filter(e => e.autoReserved && e.taskId && new Date(e.end).getTime() > now).sort((a, b) => a.start.localeCompare(b.start));
+  const off = (STATE.tasks || []).filter(t => t.reserveOff && _taskOpen(t));
+  if (res.length || off.length) {
+    const byT = {}; res.forEach(e => (byT[e.taskId] = byT[e.taskId] || []).push(e));
+    c.insertAdjacentHTML('beforeend', `<div class="card mt-4"><div class="font-semibold mb-2">📅 Horários reservados para tarefas com prazo</div>
+      ${Object.entries(byT).map(([tid, evs]) => { const t = (STATE.tasks || []).find(x => x.id === tid); if (!t) return ''; const lastD = evs[evs.length - 1].start.slice(0, 10); const folga = t.due ? Math.round((new Date(t.due + 'T12:00:00') - new Date(lastD + 'T12:00:00')) / 86400000) : null;
+        return `<div class="item-row"><div class="item-content"><div class="item-title" style="font-size:.88rem">${t.work ? '💼 ' : ''}${_esc(t.title)}</div><div class="text-xs text-muted">${evs.map(e => { const d = new Date(e.start); return `${_WD[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1} ${e.start.slice(11, 16)}–${e.end.slice(11, 16)}`; }).join(' · ')} · prazo ${formatDate(t.due)}${folga != null ? ` · <span style="color:${folga >= _reserveCfg().margin ? 'var(--accent-green, #3a7a4a)' : 'var(--accent-amber)'}">${folga > 0 ? `${folga} dia(s) de folga` : 'sem folga'}</span>` : ''}</div></div></div>`; }).join('')}
+      ${off.length ? `<div class="text-xs text-muted mt-2">Você apagou a reserva destas (o app não recria sozinho): ${off.map(t => `<a href="#" onclick="event.preventDefault();reserveAgain('${t.id}')">${_esc(t.title)} ↺</a>`).join(', ')}</div>` : ''}
+    </div>`);
+  }
+  // marca "na margem" nos itens do plano
+  const P = planWeek(_planOffset);
+  P.days.forEach(day => day.items.filter(i => i.inMargin).forEach(i => {
+    const el = [...c.querySelectorAll('.plan-item')].find(x => x.textContent.includes(i.task.title) && x.textContent.includes(_minToHM(i.s)));
+    if (el && !el.querySelector('.in-margin')) el.insertAdjacentHTML('beforeend', '<div class="text-xs in-margin" style="color:var(--accent-amber)">⚠ dentro da margem de segurança</div>');
+  }));
+};
+
+// Sinais: reserva que não coube antes do prazo / reservas apagadas
+const _origOpsIntelAR = opsIntelligence;
+opsIntelligence = function () {
+  const items = _origOpsIntelAR() || [];
+  try {
+    const P = planWeek(0), today = todayStr();
+    const tight = [];
+    P.days.forEach(d => d.items.forEach(i => { if ((i.inMargin || i.late) && i.task.due && !tight.includes(i.task)) tight.push(i.task); }));
+    P.unplaced.filter(u => u.task.due).forEach(u => { if (!tight.includes(u.task)) tight.push(u.task); });
+    tight.slice(0, 2).forEach(t => items.push({ sev: _daysUntil(t.due) <= 1 ? 'critical' : 'warn', icon: '🛡', title: `"${t.title}" não cabe com folga antes do prazo (${_whenLabel(t.due)})`, detail: 'Libere um horário, reduza a estimativa ou renegocie o prazo.', action: "navigate('planner')" }));
+  } catch (e) {}
+  const order = { critical: 0, warn: 1, suggest: 2, info: 3 };
+  return items.sort((x, y) => (order[x.sev] ?? 9) - (order[y.sev] ?? 9));
+};
 
 </script>
 <script>
