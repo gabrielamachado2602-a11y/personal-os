@@ -7967,7 +7967,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.1';
+const APP_VERSION = '3.39.2';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13431,8 +13431,9 @@ planWeek = function (offset) {
 // ── Reserva automática na Agenda ──
 let _autoReserveBusy = false;
 function _canAutoReserve() {
-  let driveOn = false; try { driveOn = localStorage.getItem('personalOS_driveEnabled') === '1'; } catch (e) {}
-  return !driveOn || _driveHasPulled; // com Drive ligado, só depois de baixar (evita reservas duplicadas entre aparelhos)
+  // v3.39.2 (escolha da usuária): reserva mesmo antes de sincronizar com o Drive.
+  // Se dois aparelhos reservarem a mesma tarefa, a limpeza de duplicadas remove as mais recentes depois da fusão.
+  return true;
 }
 function _trackAutoIds() {
   // reserva automática que sumiu sem a tarefa ter sido concluída = você apagou → não recriar
@@ -13442,7 +13443,8 @@ function _trackAutoIds() {
   Object.keys(map).forEach(eid => {
     if (ids.has(eid)) return;
     const t = (STATE.tasks || []).find(x => x.id === map[eid].t);
-    if (t && _taskOpen(t) && map[eid].end > Date.now()) { t.reserveOff = true; t.updatedAt = Date.now(); }
+    // só conta como "você apagou" se a tarefa ficou sem a reserva necessária (duplicada removida por outro aparelho não conta)
+    if (t && _taskOpen(t) && map[eid].end > Date.now() && _futureReservedMin(t.id) < _taskNeedMin(t) - 5) { t.reserveOff = true; t.updatedAt = Date.now(); }
     delete map[eid]; changed = true;
   });
   return changed;
@@ -13904,7 +13906,6 @@ function reserveDiagnosis() {
     let why;
     if (t.status === 'waiting') why = t.due === today || t.due > today ? `Aguardando: só ganha horário no dia da entrega (${formatDate(t.due)})` : 'Aguardando e com prazo vencido: atualize o status ou o prazo';
     else if (!cfg.auto) why = 'A reserva automática está desligada';
-    else if (!_canAutoReserve()) why = 'Esperando sincronizar com o Drive neste aparelho (toque em "Reconectar Drive")';
     else if (t.reserveOff) why = 'Você apagou a reserva desta tarefa: toque em ↺ para reservar de novo';
     else if (unpl.has(t.id)) why = 'Não coube: a agenda está cheia até o prazo (libere um horário ou mude o prazo)';
     else {
