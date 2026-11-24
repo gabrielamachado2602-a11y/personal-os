@@ -496,6 +496,26 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
   .gc-mchip .gc-mtime{display:none}
 }
 
+
+/* ── Hábitos ligados a metas (v3.33.0) ── */
+.hg-picker{display:flex;flex-direction:column;gap:2px;max-height:170px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm,6px);padding:6px}
+.hg-opt{display:flex;align-items:center;gap:8px;font-size:.84rem;padding:4px 6px;border-radius:5px;cursor:pointer}
+.hg-opt.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.hg-count{display:flex;gap:8px;align-items:flex-start;font-size:.8rem;margin-top:8px;color:var(--text2);cursor:pointer}
+.hg-goals{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
+.hg-chip{font-size:.72rem;border:1px solid var(--border);border-radius:999px;padding:2px 9px;color:var(--text2);cursor:pointer;background:var(--surface2)}
+.hg-chip.ghost{border-style:dashed;background:none}
+.hg-week{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--text2);white-space:nowrap}
+.hg-week.ok{background:color-mix(in srgb,var(--accent-green,#6A7860) 18%,transparent);color:var(--accent-green,#6A7860)}
+.hg-week.behind{background:color-mix(in srgb,var(--accent-amber) 18%,transparent);color:var(--accent-amber)}
+.hg-block{margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)}
+.hg-row{display:flex;align-items:center;gap:8px;font-size:.8rem;padding:2px 0;flex-wrap:wrap}
+.hg-name{font-weight:500}
+.hg-const{font-size:.72rem;color:var(--text3)}
+.hg-row .btn-icon{margin-left:auto;font-size:.7rem}
+.hg-add{margin-top:4px;font-size:.75rem;border:1px dashed var(--border);border-radius:6px;background:none;color:var(--text2);padding:2px 6px;cursor:pointer}
+.hg-sug-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:.85rem;flex-wrap:wrap}
+
 .hide-mobile{}
 @media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
 .plan-week{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -1484,7 +1504,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Dimensão</label>
-        <select class="form-select" id="habit-dim" onchange="populateSubSelect('habit-sub','habit-dim','')"></select>
+        <select class="form-select" id="habit-dim" onchange="populateSubSelect('habit-sub','habit-dim','');renderHabitGoalPicker(getHabitGoalIds())"></select>
       </div>
       <div class="form-group">
         <label class="form-label">Sub-área</label>
@@ -1494,6 +1514,11 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
     <div class="form-group">
       <label class="form-label">Unidade</label>
       <input class="form-input" id="habit-unit" placeholder="dias, treinos, páginas...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Metas que este hábito alimenta</label>
+      <div id="habit-goals-picker" class="hg-picker"></div>
+      <label class="hg-count" id="habit-count-row" style="display:none"><input type="checkbox" id="habit-count-goal"> <span id="habit-count-label"></span></label>
     </div>
     <input type="hidden" id="habit-edit-id">
     <div class="modal-actions">
@@ -3335,7 +3360,10 @@ function opsIntelligence() {
   if (prevM>0 && thisM > prevM*1.2) add('warn','◇',`Gastos ${Math.round((thisM/prevM-1)*100)}% acima do mês passado`, `${fmtBRL(thisM)} vs ${fmtBRL(prevM)}. Vale revisar onde está indo.`, "navigate('financial')");
 
   // ---- SUGESTÕES / O QUE FALTA (ponte estratégia ↔ execução) ----
-  const goalHasAction = gid => activeTasks.some(t=>t.goalId===gid) || STATE.events.some(e=>e.goalId===gid);
+  // ação ligada à meta: tarefa, compromisso, hábito, livro em leitura (Estante) ou candidatura ativa (Pipeline)
+  const goalHasAction = gid => activeTasks.some(t=>t.goalId===gid) || STATE.events.some(e=>e.goalId===gid) || habitsForGoal(gid).length > 0
+    || (STATE.books||[]).some(bk=>bk.status==='lendo' && (bk.goalId===gid || (typeof _readingGoal==='function' && _readingGoal() && _readingGoal().id===gid)))
+    || (STATE.applications||[]).some(ap=>!ap.outcome && ap.goalId===gid);
   inProgressGoals.filter(g=>!goalHasAction(g.id)).slice(0,2).forEach(g =>
     add('suggest','🔗',`Meta "${g.title}" sem nenhuma ação vinculada`, 'Crie uma tarefa ou compromisso para destravá-la.', "navigate('tasks')", {label:'+ Tarefa', fn:`openTaskModalForGoal('${g.id}')`}));
   inProgressGoals.filter(g=> g.type==='quantitative' && g.target>0 && (g.current||0)===0).slice(0,1).forEach(g =>
@@ -5530,11 +5558,13 @@ function saveHabit() {
     unit: document.getElementById('habit-unit').value.trim(),
     dim: document.getElementById('habit-dim').value,
     sub: document.getElementById('habit-sub')?.value || '',
-    active: true, created: Date.now()
+    goalIds: typeof getHabitGoalIds === 'function' ? getHabitGoalIds() : [],
+    countToGoal: !!(document.getElementById('habit-count-goal') || {}).checked,
+    active: true, created: Date.now(), updatedAt: Date.now()
   };
   if (freq === 'specific_days' && habit.days.length === 0) { toast('Selecione ao menos um dia da semana', true); return; }
   const existing = STATE.habits.findIndex(h => h.id === id);
-  if (existing >= 0) STATE.habits[existing] = { ...STATE.habits[existing], ...habit };
+  if (existing >= 0) STATE.habits[existing] = { ...STATE.habits[existing], ...habit, created: STATE.habits[existing].created || habit.created };
   else STATE.habits.push(habit);
   save();
   closeModal('modal-habit');
@@ -7797,7 +7827,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.32.0';
+const APP_VERSION = '3.33.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -11989,6 +12019,240 @@ setInterval(() => {
   if (n) n.style.top = (_nowMin() / 60 * GC_HP) + 'px';
 }, 60000);
 window.addEventListener('resize', () => { if (currentPage === 'agenda') gcRenderSide(); });
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.33.0 — HÁBITOS LIGADOS A METAS
+// ═══════════════════════════════════════════════════════════
+function habitGoalIds(h) { return Array.isArray(h && h.goalIds) ? h.goalIds : (h && h.goalId ? [h.goalId] : []); }
+function habitsForGoal(gid) { return (STATE.habits || []).filter(h => h.active !== false && habitGoalIds(h).includes(gid)); }
+function _habitDone(l) { return l && (l.done === true || l.done === 'true' || l.done === 1); }
+function _habitWeekTarget(h) {
+  if (h.frequency === 'daily') return 7;
+  if (h.frequency === 'times_week') return Math.max(1, Number(h.target) || 1);
+  if (h.frequency === 'specific_days') { const d = Array.isArray(h.days) ? h.days : (() => { try { return JSON.parse(h.days || '[]'); } catch (e) { return []; } })(); return Math.max(1, d.length); }
+  if (h.frequency === 'weekly') return Math.max(1, Number(h.target) || 1);
+  return null; // mensal: avaliado no mês
+}
+function habitStats(h) {
+  const today = todayStr();
+  const t0 = new Date(today + 'T12:00:00');
+  const mon = _dateAdd(today, -((t0.getDay() + 6) % 7));
+  const logs = (STATE.habitLogs || []).filter(l => l.habitId === h.id && _habitDone(l));
+  const week = logs.filter(l => l.date >= mon && l.date <= today).length;
+  const target = _habitWeekTarget(h);
+  // constância: 4 semanas completas anteriores (ou as que existirem desde a criação)
+  const created = h.created ? _localDateStr(new Date(Number(h.created))) : null;
+  let hit = 0, n = 0;
+  for (let i = 1; i <= 4; i++) {
+    const ws = _dateAdd(mon, -7 * i), we = _dateAdd(ws, 6);
+    if (created && we < created) continue;
+    n++;
+    const c = logs.filter(l => l.date >= ws && l.date <= we).length;
+    if (target && c >= target) hit++;
+  }
+  const elapsed = ((t0.getDay() + 6) % 7) + 1; // dias corridos da semana (seg = 1)
+  const expected = target ? target * elapsed / 7 : 0;
+  return { week, target, hit, n, behind: target ? week + 0.01 < Math.floor(expected) : false, elapsed };
+}
+
+// ── formulário do hábito: escolher metas ──
+function renderHabitGoalPicker(selected) {
+  const box = document.getElementById('habit-goals-picker');
+  if (!box) return;
+  const sel = new Set(selected || []);
+  const dim = (document.getElementById('habit-dim') || {}).value || '';
+  const goals = (STATE.goals || []).filter(g => !['achieved', 'abandoned', 'done'].includes(g.status) || sel.has(g.id));
+  goals.sort((a, b) => ((b.dim === dim) - (a.dim === dim)) || a.title.localeCompare(b.title));
+  box.innerHTML = goals.length ? goals.map(g => `<label class="hg-opt${sel.has(g.id) ? ' on' : ''}">
+      <input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''} onchange="this.parentElement.classList.toggle('on',this.checked);updateHabitCountToggle()">
+      <span class="dim-dot" style="background:${getDimColor(g.dim) || 'var(--text3)'}"></span>${_esc(g.title)}</label>`).join('')
+    : '<div class="text-xs text-muted">Nenhuma meta ativa ainda.</div>';
+  updateHabitCountToggle();
+}
+function getHabitGoalIds() { return [...document.querySelectorAll('#habit-goals-picker input:checked')].map(i => i.value); }
+function updateHabitCountToggle() {
+  const row = document.getElementById('habit-count-row');
+  if (!row) return;
+  const quant = getHabitGoalIds().map(id => (STATE.goals || []).find(g => g.id === id)).filter(g => g && g.type === 'quantitative' && Number(g.target) > 0);
+  row.style.display = quant.length ? '' : 'none';
+  const lbl = document.getElementById('habit-count-label');
+  if (lbl && quant.length) lbl.textContent = `Cada check-in soma 1 no progresso de: ${quant.map(g => g.title).join(', ')}`;
+}
+const _origOpenHabitModalV333 = openHabitModal;
+openHabitModal = function () {
+  _origOpenHabitModalV333.apply(this, arguments);
+  renderHabitGoalPicker([]);
+  const c = document.getElementById('habit-count-goal'); if (c) c.checked = false;
+};
+const _origEditHabitV333 = editHabit;
+editHabit = function (id) {
+  _origEditHabitV333(id);
+  const h = (STATE.habits || []).find(x => x.id === id);
+  renderHabitGoalPicker(habitGoalIds(h));
+  const c = document.getElementById('habit-count-goal'); if (c) c.checked = !!(h && h.countToGoal);
+};
+
+// ── check-in que soma em meta numérica ──
+const _origToggleHabitDayV333 = toggleHabitDay;
+toggleHabitDay = function (habitId, date) {
+  const before = (STATE.habitLogs || []).find(l => l.habitId === habitId && l.date === date);
+  const wasDone = _habitDone(before);
+  _origToggleHabitDayV333(habitId, date);
+  const after = (STATE.habitLogs || []).find(l => l.habitId === habitId && l.date === date);
+  const isDone = _habitDone(after);
+  const h = (STATE.habits || []).find(x => x.id === habitId);
+  if (!h || !h.countToGoal || wasDone === isDone) return;
+  const delta = isDone ? 1 : -1;
+  habitGoalIds(h).forEach(gid => {
+    const g = (STATE.goals || []).find(x => x.id === gid);
+    if (!g || g.type !== 'quantitative' || !(Number(g.target) > 0)) return;
+    g.current = Math.max(0, (Number(g.current) || 0) + delta);
+    if (g.status === 'not_started' && delta > 0) g.status = 'in_progress';
+    g.updatedAt = Date.now();
+    STATE.goalLog = STATE.goalLog || [];
+    STATE.goalLog.push({ id: uid(), goalId: g.id, date: todayStr(), value: g.current, created: Date.now() });
+  });
+  save();
+};
+
+// ── sugestões de ligação ──
+function suggestHabitGoalLinks() {
+  const dismissed = new Set((STATE.settings && STATE.settings.habitLinkDismissed) || []);
+  const goals = (STATE.goals || []).filter(g => !['achieved', 'abandoned', 'done'].includes(g.status));
+  const out = [];
+  (STATE.habits || []).filter(h => h.active !== false).forEach(h => {
+    const linked = new Set(habitGoalIds(h));
+    const ht = new Set(_nbTok(h.title)), hu = new Set(_nbTok(h.unit || ''));
+    goals.forEach(g => {
+      if (linked.has(g.id) || dismissed.has(h.id + '|' + g.id)) return;
+      const gt = _nbTok(g.title);
+      const overlap = gt.some(t => ht.has(t));
+      const sameSub = !!(h.sub && g.sub && h.sub === g.sub);
+      const onlyGoalInSub = sameSub && goals.filter(x => x.sub === g.sub).length === 1;
+      const unitHit = sameSub && gt.some(t => hu.has(t));
+      const score = (overlap ? 3 : 0) + (sameSub ? 2 : 0) + (unitHit ? 1 : 0) + (onlyGoalInSub ? 1 : 0);
+      if (score >= 3) out.push({ h, g, score });
+    });
+  });
+  return out.sort((a, b) => b.score - a.score);
+}
+function linkHabitGoal(hid, gid) {
+  const h = (STATE.habits || []).find(x => x.id === hid); if (!h) return;
+  h.goalIds = [...new Set([...habitGoalIds(h), gid])]; delete h.goalId;
+  h.updatedAt = Date.now();
+}
+function acceptHabitLink(hid, gid) { linkHabitGoal(hid, gid); save(); _refreshHabitGoalViews(); toast('Hábito ligado à meta'); }
+function acceptAllHabitLinks() { const s = suggestHabitGoalLinks(); s.forEach(x => linkHabitGoal(x.h.id, x.g.id)); save(); _refreshHabitGoalViews(); toast(`${s.length} ligação(ões) feitas`); }
+function dismissHabitLink(hid, gid) {
+  STATE.settings.habitLinkDismissed = [...new Set([...((STATE.settings.habitLinkDismissed) || []), hid + '|' + gid])];
+  save(); _refreshHabitGoalViews();
+}
+function unlinkHabitGoal(hid, gid) {
+  const h = (STATE.habits || []).find(x => x.id === hid); if (!h) return;
+  h.goalIds = habitGoalIds(h).filter(x => x !== gid); delete h.goalId; h.updatedAt = Date.now();
+  save(); _refreshHabitGoalViews();
+}
+function _refreshHabitGoalViews() {
+  if (currentPage === 'habits') renderHabits();
+  else if (currentPage === 'goals') renderGoals();
+  else if (currentPage === 'dashboard') renderDashboard();
+  else if (currentPage === 'insights') renderInsights();
+}
+function habitLinkSuggestionsHTML() {
+  const s = suggestHabitGoalLinks();
+  if (!s.length) return '';
+  return `<div class="card mb-4 hg-suggest">
+    <div class="section-header" style="margin-bottom:6px"><div class="font-semibold">🔗 Ligações sugeridas entre hábitos e metas</div>
+      ${s.length > 1 ? `<button class="btn btn-primary btn-sm" onclick="acceptAllHabitLinks()">Ligar todas</button>` : ''}</div>
+    <div class="text-xs text-muted mb-2">Com a ligação, cada check-in conta como ação da meta e a meta mostra a sua constância.</div>
+    ${s.map(x => `<div class="hg-sug-row">
+      <span><strong>${_esc(x.h.title)}</strong> <span class="text-muted">→</span> ${_esc(x.g.title)}</span>
+      <span style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="dismissHabitLink('${x.h.id}','${x.g.id}')">Não</button><button class="btn btn-ghost btn-sm" style="border:1px solid var(--accent);color:var(--accent)" onclick="acceptHabitLink('${x.h.id}','${x.g.id}')">Ligar</button></span>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ── página de Hábitos: sugestões + metas em cada cartão ──
+const _origRenderHabitsV333 = renderHabits;
+renderHabits = function () {
+  _origRenderHabitsV333();
+  const list = document.getElementById('habits-list');
+  if (!list) return;
+  const sug = habitLinkSuggestionsHTML();
+  if (sug) list.insertAdjacentHTML('afterbegin', sug);
+  (STATE.habits || []).forEach(h => {
+    const grid = document.getElementById('hgrid-' + h.id);
+    const card = grid && grid.closest('.card');
+    if (!card || card.querySelector('.hg-goals')) return;
+    const st = habitStats(h);
+    const goals = habitGoalIds(h).map(id => (STATE.goals || []).find(g => g.id === id)).filter(Boolean);
+    const weekTxt = st.target ? `<span class="hg-week${st.week >= st.target ? ' ok' : st.behind ? ' behind' : ''}">Esta semana: ${st.week}/${st.target}</span>` : '';
+    const html = `<div class="hg-goals">${weekTxt}${goals.map(g => `<span class="hg-chip" onclick="navigate('goals')" title="Meta ligada">◎ ${_esc(g.title)}${h.countToGoal && g.type === 'quantitative' && Number(g.target) > 0 ? ' · soma no progresso' : ''}</span>`).join('')}${goals.length ? '' : `<span class="hg-chip ghost" onclick="editHabit('${h.id}')">+ ligar a uma meta</span>`}</div>`;
+    grid.insertAdjacentHTML('beforebegin', html);
+  });
+};
+
+// ── Metas: hábitos ligados em cada cartão ──
+const _origRenderGoalsV333 = renderGoals;
+renderGoals = function () {
+  _origRenderGoalsV333();
+  document.querySelectorAll('#goals-list .goal-card[data-goal-id]').forEach(card => {
+    const gid = card.dataset.goalId;
+    if (card.querySelector('.hg-block')) return;
+    const hs = habitsForGoal(gid);
+    const unlinked = (STATE.habits || []).filter(h => h.active !== false && !habitGoalIds(h).includes(gid));
+    const rows = hs.map(h => {
+      const st = habitStats(h);
+      const pct = st.n ? Math.round(st.hit / st.n * 100) : null;
+      return `<div class="hg-row">
+        <span class="hg-name">◉ ${_esc(h.title)}</span>
+        ${st.target ? `<span class="hg-week${st.week >= st.target ? ' ok' : st.behind ? ' behind' : ''}">${st.week}/${st.target} na semana</span>` : ''}
+        <span class="hg-const" title="Semanas em que bateu o alvo do hábito, nas últimas ${st.n || 0}">${pct === null ? 'constância: começando' : `constância ${st.hit}/${st.n} sem.`}</span>
+        <button class="btn-icon" title="Desligar" onclick="unlinkHabitGoal('${h.id}','${gid}')">✕</button>
+      </div>`;
+    }).join('');
+    const add = unlinked.length ? `<select class="hg-add" onchange="if(this.value){acceptHabitLink(this.value,'${gid}')}"><option value="">+ ligar hábito</option>${unlinked.map(h => `<option value="${h.id}">${_esc(h.title)}</option>`).join('')}</select>` : '';
+    if (!rows && !add) return;
+    card.insertAdjacentHTML('beforeend', `<div class="hg-block">${rows}${add}</div>`);
+  });
+};
+
+// ── Inteligência: hábitos contam como ação da meta ──
+const _origGoalForecastV333 = goalForecast;
+goalForecast = function (g) {
+  const f = _origGoalForecastV333(g);
+  if (!f || f.kind !== 'qual') return f;
+  const hs = habitsForGoal(g.id);
+  if (!hs.length) return f;
+  const ids = new Set(hs.map(h => h.id));
+  const last = (STATE.habitLogs || []).filter(l => ids.has(l.habitId) && _habitDone(l)).map(l => l.date).sort().pop();
+  if (!last) return { ...f, hasAction: true, idle: f.hasAction ? f.idle : Math.floor((Date.now() - (Number(g.created) || Date.now())) / 86400000), habitsOnly: true };
+  const idleH = Math.max(0, Math.round((new Date(todayStr() + 'T12:00:00') - new Date(last + 'T12:00:00')) / 86400000));
+  const idle = f.hasAction ? Math.min(f.idle, idleH) : idleH;
+  return { ...f, hasAction: true, idle, risk: idle >= 21 && g.status !== 'achieved' };
+};
+const _origOpsIntelV333 = opsIntelligence;
+opsIntelligence = function () {
+  let items = _origOpsIntelV333() || [];
+  // hábito ligado a meta em andamento, atrasado na semana (a partir de quinta)
+  const dow = (new Date().getDay() + 6) % 7; // seg=0
+  if (dow >= 3) {
+    (STATE.habits || []).filter(h => h.active !== false && habitGoalIds(h).length).forEach(h => {
+      const st = habitStats(h);
+      if (!st.target || !st.behind) return;
+      const g = habitGoalIds(h).map(id => (STATE.goals || []).find(x => x.id === id)).find(x => x && x.status === 'in_progress');
+      if (!g) return;
+      const left = st.target - st.week, daysLeft = 7 - st.elapsed + 1;
+      items.push({ sev: left > daysLeft ? 'warn' : 'suggest', icon: '◉', title: `${h.title}: ${st.week}/${st.target} esta semana`, detail: `Alimenta "${g.title}". Faltam ${left} em ${daysLeft} dia${daysLeft > 1 ? 's' : ''}.`, action: "navigate('habits')", quickBtn: { label: 'Marcar hoje', fn: `toggleHabitToday('${h.id}')` } });
+    });
+  }
+  // sugestão de ligar hábitos a metas
+  const sug = suggestHabitGoalLinks();
+  if (sug.length) items.push({ sev: 'suggest', icon: '🔗', title: `${sug.length} hábito(s) podem ser ligados a metas`, detail: sug.slice(0, 2).map(x => `${x.h.title} → ${x.g.title}`).join(' · '), action: "navigate('habits')", quickBtn: { label: 'Ligar', fn: 'acceptAllHabitLinks()' } });
+  const order = { critical: 0, warn: 1, suggest: 2, info: 3 };
+  return items.sort((x, y) => (order[x.sev] ?? 9) - (order[y.sev] ?? 9));
+};
 
 </script>
 <script>
