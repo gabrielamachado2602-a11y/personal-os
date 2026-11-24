@@ -1,7 +1,7 @@
-// Personal OS 2027 — Service Worker v3.30.0
+// Personal OS 2027 — Service Worker v3.30.1
 // Estratégia: REDE PRIMEIRO para o app (sempre pega a versão mais nova quando há internet),
 // cache só como reserva quando estiver offline.
-const CACHE_NAME = 'personal-os-v3.30.0';
+const CACHE_NAME = 'personal-os-v3.30.1';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', event => {
@@ -25,7 +25,7 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // APIs do Google (Drive, Gmail, login) — nunca cacheia, nunca intercepta
+  // APIs do Google (Drive, login) — nunca cacheia, nunca intercepta
   if (url.hostname.endsWith('googleapis.com') || url.hostname.endsWith('google.com') || url.hostname.endsWith('gstatic.com')) return;
 
   // Fontes — cache primeiro (não mudam)
