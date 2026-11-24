@@ -595,6 +595,21 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .wd-lunch.text-xs,.wd-row.wd-lunch{}
 .wd-now{font-size:.7rem;color:#d93025;border-top:2px solid #d93025;margin:4px 0;padding-top:1px}
 
+
+/* ── hábitos na agenda + notas da subárea (v3.38.0) ── */
+.gc-ev.gc-habit{background:color-mix(in srgb,var(--hc) 16%,var(--surface)) !important;color:var(--text);border:1px dashed var(--hc);cursor:pointer}
+.gc-ev.gc-habit.done{opacity:.6}
+.gc-ev.gc-habit.done .gc-ev-t{text-decoration:line-through}
+.gc-hcheck{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border:1.5px solid currentColor;border-radius:50%;font-size:.6rem;margin-right:4px;vertical-align:-2px;cursor:pointer;flex-shrink:0}
+.gc-hcheck.on-ev{border-color:#fff}
+.gc-chip.gc-hchip{background:color-mix(in srgb,var(--hc) 14%,var(--surface));color:var(--text);border-left:3px solid var(--hc)}
+.gc-hcount{font-size:.66rem;opacity:.7}
+.gc-chip.gc-hchip.done{opacity:.55;text-decoration:line-through}
+.inbox-leg-row{display:flex;gap:8px;align-items:center;font-size:.84rem;padding:3px 0;border-top:1px solid var(--border)}
+.area-note{display:flex;gap:8px;padding:8px 4px;border-top:1px solid var(--border);cursor:pointer;font-size:.88rem}
+.area-note:hover{background:var(--surface2)}
+.area-note-t{white-space:pre-wrap;word-break:break-word}
+
 .hide-mobile{}
 @media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
 .plan-week{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -1616,6 +1631,16 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
       <label class="form-label">Metas que este hábito alimenta</label>
       <div id="habit-goals-picker" class="hg-picker"></div>
       <label class="hg-count" id="habit-count-row" style="display:none"><input type="checkbox" id="habit-count-goal"> <span id="habit-count-label"></span></label>
+    </div>
+    <div class="form-group">
+      <label class="form-label">📅 Na agenda (opcional)</label>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label text-xs">Horário</label><input class="form-input" type="time" step="900" id="habit-ag-time"></div>
+        <div class="form-group"><label class="form-label text-xs">Duração (min)</label><input class="form-input" type="number" min="5" step="5" id="habit-ag-dur" placeholder="30"></div>
+      </div>
+      <label class="form-label text-xs">Dias na agenda <span class="text-muted">(vazio = conforme a frequência)</span></label>
+      <div class="flex gap-2" style="flex-wrap:wrap" id="habit-ag-days"></div>
+      <div class="text-xs text-muted mt-1">Com horário, vira um bloco na agenda e reserva esse tempo. Sem horário, aparece na faixa "dia todo" com ✓. Se já houver um compromisso com o nome do hábito, ele ganha o ✓ em vez de duplicar.</div>
     </div>
     <input type="hidden" id="habit-edit-id">
     <div class="modal-actions">
@@ -4147,7 +4172,7 @@ function processInboxItem() {
   closeModal('modal-inbox-process');
   renderInbox();
   updateInboxBadge();
-  toast(item.type !== 'pending' ? 'Item salvo e classificado' : (textChanged ? 'Item atualizado' : 'Item salvo'));
+  if (item.type === 'pending' || item.type === 'purchase') toast(item.type !== 'pending' ? 'Item salvo e classificado' : (textChanged ? 'Item atualizado' : 'Item salvo'));
 }
 
 function removeInboxItem(id) {
@@ -5672,6 +5697,9 @@ function saveHabit() {
     sub: document.getElementById('habit-sub')?.value || '',
     goalIds: typeof getHabitGoalIds === 'function' ? getHabitGoalIds() : [],
     countToGoal: !!(document.getElementById('habit-count-goal') || {}).checked,
+    agendaTime: (document.getElementById('habit-ag-time') || {}).value || '',
+    agendaDur: parseInt((document.getElementById('habit-ag-dur') || {}).value) || 0,
+    agendaDays: [...document.querySelectorAll('#habit-ag-days .chip.active')].map(b => Number(b.dataset.d)),
     active: true, created: Date.now(), updatedAt: Date.now()
   };
   if (freq === 'specific_days' && habit.days.length === 0) { toast('Selecione ao menos um dia da semana', true); return; }
@@ -7939,7 +7967,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.37.0';
+const APP_VERSION = '3.38.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -11593,6 +11621,7 @@ function gcRenderTimeGrid(dates) {
       `<div class="gc-chip" style="background:${gcColor(e)}" onclick="gcOpenEvent(event,'${e.id}','${d}')" onpointerdown="agendaDragStart(event,'${e.id}','${d}')" title="${_esc(e.title)}">${e.start.slice(0, 10) < d ? '◂ ' : ''}${_esc(e.title)}${e.end.slice(0, 10) > d ? ' ▸' : ''}</div>`));
     if (gcShowTasks()) (STATE.tasks || []).filter(t => t.due === d && t.status !== 'cancelled').forEach(t => items.push(
       `<div class="gc-chip gc-task${t.status === 'done' ? ' done' : ''}" onclick="gcOpenTask(event,'${t.id}')" title="Tarefa: ${_esc(t.title)}"><span class="gc-check" onclick="event.stopPropagation();toggleTask('${t.id}');renderAgenda()">${t.status === 'done' ? '✓' : ''}</span>${_esc(t.title)}</div>`));
+    { const hc = gcHabitChips(d); if (hc) items.push(hc); }
     if (gcShowNotes()) notesForDate(d).forEach(no => items.push(
       `<div class="gc-chip gc-note" style="border-left-color:${no.color || 'var(--text3)'}" onclick="event.stopPropagation();editNote('${no.id}')" title="Anotação">📝 ${_esc(no.text)}</div>`));
     return { d, html: items.join('') };
@@ -11602,7 +11631,7 @@ function gcRenderTimeGrid(dates) {
   let hours = '';
   for (let h = 1; h < 24; h++) hours += `<div class="gc-hour" style="top:${h * GC_HP}px">${String(h).padStart(2, '0')}:00</div>`;
   const colsHTML = dates.map(d => {
-    const laid = layoutDayEvents(gcEventsOn(d).filter(e => !gcIsMultiDay(e) && !isWorkBlock(e)), d);
+    const laid = layoutDayEvents(gcEventsOn(d).filter(e => !gcIsMultiDay(e) && !isWorkBlock(e)).concat(gcHabitVirtual(d)), d);
     return `<div class="gc-col${d === today ? ' today' : ''}" data-date="${d}" data-drop-date="${d}" data-timegrid="gc" onpointerdown="gcGridDown(event,'${d}')">
       ${gcWorkBand(d)}${laid.map(it => gcEventBlock(it, d)).join('')}
       ${d === today ? `<div class="gc-now" style="top:${nowMin / 60 * GC_HP}px"></div>` : ''}
@@ -12074,10 +12103,12 @@ function gcRenderSchedule() {
     const evs = gcEventsOn(d).sort((a, b) => (gcIsMultiDay(b) - gcIsMultiDay(a)) || a.start.slice(11).localeCompare(b.start.slice(11)));
     const tasks = gcShowTasks() ? (STATE.tasks || []).filter(t => t.due === d && t.status !== 'cancelled') : [];
     const notes = gcShowNotes() ? notesForDate(d) : [];
-    if (!evs.length && !tasks.length && !notes.length) continue;
+    const habs = gcShowHabits() ? habitAgendaOn(d).filter(x => !x.linked) : [];
+    if (!evs.length && !tasks.length && !notes.length && !habs.length) continue;
     const items = [
       ...evs.map(e => `<div class="gc-sitem" onclick="gcOpenEvent(event,'${e.id}','${d}')"><span class="gc-dot" style="background:${gcColor(e)}"></span><span class="gc-stime">${gcIsMultiDay(e) ? 'Dia todo' : `${formatTime(e.start)}${e.end ? ' – ' + formatTime(e.end) : ''}`}</span><span class="gc-stitle">${_esc(e.title)}</span>${e.location ? `<span class="gc-sloc">${_esc(e.location)}</span>` : ''}</div>`),
       ...tasks.map(t => `<div class="gc-sitem" onclick="gcOpenTask(event,'${t.id}')"><span class="gc-check" onclick="event.stopPropagation();toggleTask('${t.id}');renderAgenda()">${t.status === 'done' ? '✓' : ''}</span><span class="gc-stime">Tarefa</span><span class="gc-stitle" style="${t.status === 'done' ? 'text-decoration:line-through;color:var(--text3)' : ''}">${_esc(t.title)}</span></div>`),
+      ...habs.map(x => `<div class="gc-sitem" onclick="gcHabitPop(event,'${x.h.id}','${d}')"><span class="gc-check" onclick="event.stopPropagation();gcHabitToggle('${x.h.id}','${d}')">${x.done ? '✓' : ''}</span><span class="gc-stime">${x.timed ? `${_minToHM(x.s)} – ${_minToHM(x.e)}` : 'Hábito'}</span><span class="gc-stitle" style="${x.done ? 'text-decoration:line-through;color:var(--text3)' : ''}">🔁 ${_esc(x.h.title)}</span></div>`),
       ...notes.map(no => `<div class="gc-sitem" onclick="editNote('${no.id}')"><span class="gc-dot" style="background:${no.color || 'var(--text3)'}"></span><span class="gc-stime">Anotação</span><span class="gc-stitle">📝 ${_esc(no.text)}</span></div>`)
     ];
     rows.push(`<div class="gc-srow${d === today ? ' today' : ''}"><div class="gc-sdate" onclick="gcGoDay('${d}')"><span class="gc-sday">${dt.getDate()}</span><span class="gc-sdow">${GC_MON[dt.getMonth()].slice(0, 3)}, ${GC_DOW[dt.getDay()].toLowerCase()}</span></div><div class="gc-sitems">${items.join('')}</div></div>`);
@@ -12115,6 +12146,7 @@ function gcRenderSide() {
       ${layer('_none', 'Sem dimensão', 'var(--accent)')}
       ${layer('_tasks', 'Tarefas', 'var(--text3)')}
       ${layer('_notes', 'Anotações', 'var(--text3)')}
+      ${layer('_habits', 'Hábitos', 'var(--text3)')}
     </div>`;
 }
 
@@ -13549,6 +13581,271 @@ opsIntelligence = function () {
   } catch (e) {}
   const order = { critical: 0, warn: 1, suggest: 2, info: 3 };
   return items.sort((x, y) => (order[x.sev] ?? 9) - (order[y.sev] ?? 9));
+};
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.38.0 — HÁBITOS NA AGENDA + INBOX QUE VIRA DE VERDADE
+//  habit.agendaTime 'HH:MM' · habit.agendaDur (min, padrão 30) · habit.agendaDays [0..6]
+//  STATE.areaNotes = [{id, text, type: note|idea|contact|content, dim, sub, created}]
+// ═══════════════════════════════════════════════════════════
+function _normTxt(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+function _habitDoneOn(hId, d) { return (STATE.habitLogs || []).some(l => l.habitId === hId && l.date === d && l.done); }
+function _habitWeekCount(hId, d) {
+  const dt = new Date(d + 'T12:00:00'), mon = _dateAdd(d, -((dt.getDay() + 6) % 7)), sun = _dateAdd(mon, 6);
+  return (STATE.habitLogs || []).filter(l => l.habitId === hId && l.done && l.date >= mon && l.date <= sun).length;
+}
+function _habitLinkedEvent(h, evs) {
+  const ht = _normTxt(h.title); if (ht.length < 3) return null;
+  return evs.find(e => !e.taskId && !e._habit && e.start && (() => { const et = _normTxt(e.title); return et.includes(ht) || (et.length >= 4 && ht.includes(et)); })()) || null;
+}
+// Hábitos de um dia: [{h, done, linked (evento com o nome do hábito), timed, s, e}]
+function habitAgendaOn(d) {
+  const dow = new Date(d + 'T12:00:00').getDay(), today = todayStr();
+  const evs = _rawEventsForDate(d);
+  const out = [];
+  (STATE.habits || []).filter(h => h.active !== false).forEach(h => {
+    const done = _habitDoneOn(h.id, d);
+    let on;
+    if (h.agendaDays && h.agendaDays.length) on = h.agendaDays.includes(dow);
+    else if (h.frequency === 'specific_days') on = (h.days || []).includes(dow);
+    else if (h.frequency === 'times_week' || h.frequency === 'weekly') {
+      const target = h.frequency === 'weekly' ? 1 : (Number(h.target) || 1);
+      on = done || (d >= today && _habitWeekCount(h.id, d) < target);
+    } else if (h.frequency === 'monthly') on = done;
+    else on = true;
+    const linked = _habitLinkedEvent(h, evs);
+    if (!on && !linked) return;
+    const timed = !linked && on && !!h.agendaTime;
+    const s = timed ? _hmToMin(h.agendaTime) : null;
+    out.push({ h, done, linked, timed, s, e: timed ? Math.min(1440, s + (Number(h.agendaDur) || 30)) : null });
+  });
+  return out;
+}
+const _rawEventsForDate = getEventsForDate; // eventos reais (sem os hábitos virtuais)
+function gcHabitVirtual(d) {
+  if (!gcShowHabits()) return [];
+  return habitAgendaOn(d).filter(x => x.timed).map(x => ({ id: 'hab_' + x.h.id, title: x.h.title, start: `${d}T${_minToHM(x.s)}`, end: `${d}T${_minToHM(x.e)}`, dim: x.h.dim || '', sub: x.h.sub || '', _habit: x.h.id, _done: x.done }));
+}
+function gcShowHabits() { return !gcHidden().includes('_habits'); }
+function gcHabitToggle(hid, d) {
+  toggleHabitDay(hid, d);
+  const h = (STATE.habits || []).find(x => x.id === hid);
+  if (h) toast(_habitDoneOn(hid, d) ? `✓ ${h.title} marcado` : `${h.title} desmarcado`);
+  gcClosePop(); renderAgenda();
+}
+function gcHabitPop(ev, hid, d) {
+  ev.stopPropagation();
+  const h = (STATE.habits || []).find(x => x.id === hid); if (!h) return;
+  const x = habitAgendaOn(d).find(y => y.h.id === hid);
+  const done = _habitDoneOn(hid, d);
+  const wk = h.frequency === 'times_week' ? ` · ${_habitWeekCount(hid, d)}/${h.target || 1} na semana` : '';
+  gcPop(ev.currentTarget.getBoundingClientRect(), `
+    <div class="gc-pop-tools"><button title="Editar hábito" onclick="gcClosePop();editHabit('${hid}')">✏️</button><button title="Fechar" onclick="gcClosePop()">✕</button></div>
+    <div class="gc-pop-row"><span class="gc-sq" style="background:${h.dim ? getDimColor(h.dim) : 'var(--accent)'}"></span><div style="min-width:0;flex:1"><div class="gc-pop-title">🔁 ${_esc(h.title)}</div><div class="gc-pop-sub">${gcDateLabel(d)}${x && x.timed ? ` · ${_minToHM(x.s)} – ${_minToHM(x.e)}` : ''}${wk}</div></div></div>
+    <div class="gc-qc-actions"><button class="btn ${done ? 'btn-ghost' : 'btn-primary'} btn-sm" onclick="gcHabitToggle('${hid}','${d}')">${done ? 'Desmarcar' : '✓ Feito'}</button></div>`);
+}
+// bloco do hábito na grade (e ✓ nos compromissos que já são o hábito)
+const _origGcEventBlockV338 = gcEventBlock;
+gcEventBlock = function (it, d) {
+  const e = it.e;
+  if (e._habit) {
+    const top = it.startMin / 60 * GC_HP, h = Math.max(18, (it.endMin - it.startMin) / 60 * GC_HP - 2);
+    const w = `calc((100% - 8px) / ${it.lanes})`, left = `calc((100% - 8px) * ${it.lane} / ${it.lanes})`;
+    return `<div class="gc-ev gc-habit${e._done ? ' done' : ''}" style="top:${top}px;height:${h}px;left:${left};width:${w};--hc:${gcColor(e)}" onpointerdown="event.stopPropagation()" onclick="gcHabitPop(event,'${e._habit}','${d}')" title="Hábito: ${_esc(e.title)}">
+      <div class="gc-ev-t"><span class="gc-hcheck" onclick="event.stopPropagation();gcHabitToggle('${e._habit}','${d}')">${e._done ? '✓' : ''}</span>${_esc(e.title)}</div></div>`;
+  }
+  let html = _origGcEventBlockV338(it, d);
+  const link = gcShowHabits() && habitAgendaOn(d).find(x => x.linked && x.linked.id === e.id);
+  if (link) html = html.replace('<div class="gc-ev-t">', `<div class="gc-ev-t"><span class="gc-hcheck on-ev" title="Marcar o hábito ${_esc(link.h.title)}" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();gcHabitToggle('${link.h.id}','${d}')">${link.done ? '✓' : ''}</span>`);
+  return html;
+};
+function gcHabitChips(d) {
+  if (!gcShowHabits()) return '';
+  return habitAgendaOn(d).filter(x => !x.linked && !x.timed).map(x => `<div class="gc-chip gc-hchip${x.done ? ' done' : ''}" style="--hc:${x.h.dim ? getDimColor(x.h.dim) : 'var(--accent)'}" onclick="gcHabitPop(event,'${x.h.id}','${d}')" title="Hábito: ${_esc(x.h.title)}"><span class="gc-check" onclick="event.stopPropagation();gcHabitToggle('${x.h.id}','${d}')">${x.done ? '✓' : ''}</span>🔁 ${_esc(x.h.title)}${x.h.frequency === 'times_week' ? ` <span class="gc-hcount">${_habitWeekCount(x.h.id, d)}/${x.h.target || 1}</span>` : ''}</div>`).join('');
+}
+// hábitos com horário ocupam tempo (Planejador, expediente, "o que faço agora")
+const _origBusyIntervalsV338 = busyIntervals;
+busyIntervals = function (dStr) {
+  const raw = _origBusyIntervalsV338(dStr);
+  habitAgendaOn(dStr).filter(x => x.timed).forEach(x => raw.push({ s: x.s, e: x.e, title: x.h.title, ev: { id: 'hab_' + x.h.id, title: x.h.title, start: `${dStr}T${_minToHM(x.s)}`, end: `${dStr}T${_minToHM(x.e)}`, _habit: x.h.id, dim: x.h.dim } }));
+  raw.sort((a, b) => a.s - b.s);
+  return raw;
+};
+// formulário do hábito
+function _habitAgDaysPicker(sel) {
+  const el = document.getElementById('habit-ag-days'); if (!el) return;
+  el.innerHTML = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((l, i) => `<button type="button" class="chip${sel.includes(i) ? ' active' : ''}" data-d="${i}" onclick="this.classList.toggle('active')">${l}</button>`).join('');
+}
+function _habitAgFill(h) {
+  const t = document.getElementById('habit-ag-time'), du = document.getElementById('habit-ag-dur');
+  if (t) t.value = (h && h.agendaTime) || ''; if (du) du.value = (h && h.agendaDur) || '';
+  _habitAgDaysPicker((h && h.agendaDays) || []);
+}
+const _origOpenHabitModalV338 = openHabitModal;
+openHabitModal = function () { _origOpenHabitModalV338.apply(this, arguments); _habitAgFill(null); };
+const _origEditHabitV338 = editHabit;
+editHabit = function (id) { _origEditHabitV338.apply(this, arguments); _habitAgFill((STATE.habits || []).find(x => x.id === id)); };
+
+// ═════ INBOX: classificar = criar o item de verdade e tirar da Inbox ═════
+let _inboxPendingConv = null; // {id, kind, n} enquanto o formulário de compromisso/meta/post está aberto
+function _inboxRemove(id) { STATE.inbox = (STATE.inbox || []).filter(i => i.id !== id); save(); if (currentPage === 'inbox') renderInbox(); updateInboxBadge(); }
+function _similarTask(text) {
+  const words = s => new Set(_normTxt(s).split(' ').filter(w => w.length >= 4));
+  const a = words(text); if (a.size < 2) return null;
+  return (STATE.tasks || []).find(t => { const b = words(t.title); let n = 0; a.forEach(w => { if (b.has(w) || [...b].some(x => x.startsWith(w.slice(0, 5)) && w.length >= 5)) n++; }); return n >= Math.min(2, a.size) && n / a.size >= 0.6; }) || null;
+}
+function _subOf(dim, sub) { const D = (STATE.dimensions || []).find(x => x.id === dim); return D && (D.subs || []).find(s => s.id === sub); }
+// devolve o destino ('task', 'note', 'book', 'form', 'dup', 'stay') ou null se faltar algo
+function inboxConvert(item, opts = {}) {
+  const t = item.type, text = (item.text || '').trim();
+  if (['idea', 'content', 'note'].includes(t) && typeof looksLikeBook === 'function' && looksLikeBook(text)) {
+    inboxToBook(item.id); _inboxRemove(item.id); return 'book';
+  }
+  if (t === 'task') {
+    const dup = opts.checkDup ? _similarTask(text) : null;
+    if (dup) { _inboxRemove(item.id); if (!opts.quiet) toast(`Já existia a tarefa "${dup.title}" — tirei da Inbox`); return 'dup'; }
+    STATE.tasks.push({ id: uid(), title: text, desc: '', due: item.due || '', priority: 'medium', status: 'not_started', dim: item.dim || '', sub: item.sub || '', goalId: '', effort: '', attachments: item.attachments || [], fromInbox: true, created: Date.now(), updatedAt: Date.now() });
+    _inboxRemove(item.id);
+    if (!opts.quiet) toast(`✓ Virou tarefa${item.due ? ' para ' + formatDate(item.due) : ''}${item.dim ? ' em ' + getDimName(item.dim) : ''}`);
+    return 'task';
+  }
+  if (t === 'content') {
+    const so = _subOf(item.dim, item.sub);
+    if (so && so.module === 'social' && so.platform && !opts.quiet) {
+      openPostModal(so.platform);
+      document.getElementById('post-title').value = text;
+      if (item.due) document.getElementById('post-date').value = item.due;
+      _inboxPendingConv = { id: item.id, kind: 'post', n: (STATE.posts || []).length };
+      return 'form';
+    }
+  }
+  if (['note', 'idea', 'contact', 'content'].includes(t)) {
+    if (!item.sub) return null;
+    STATE.areaNotes = STATE.areaNotes || [];
+    STATE.areaNotes.push({ id: uid(), text, type: t, dim: item.dim || '', sub: item.sub, attachments: item.attachments || [], created: item.created || Date.now(), from: 'inbox' });
+    _inboxRemove(item.id);
+    if (!opts.quiet) toast(`📝 Foi para ${getSubName(item.dim, item.sub) || 'a subárea'}`);
+    return 'note';
+  }
+  if (opts.quiet) return null;
+  if (t === 'event') {
+    quickAddEventDay(item.due || todayStr());
+    document.getElementById('event-title').value = text;
+    if (item.dim) { populateDimSelect('event-dim', item.dim); populateSubSelect('event-sub', 'event-dim', item.sub || ''); }
+    _inboxPendingConv = { id: item.id, kind: 'event', n: (STATE.events || []).length };
+    toast('Escolha o horário e salve — o item sai da Inbox');
+    return 'form';
+  }
+  if (t === 'goal') {
+    openGoalModal(null, item.dim || '', item.sub || '');
+    document.getElementById('goal-title').value = text;
+    _inboxPendingConv = { id: item.id, kind: 'goal', n: (STATE.goals || []).length };
+    return 'form';
+  }
+  return 'stay'; // compra e "sem classificação" ficam na Inbox
+}
+const _origProcessInboxItemV338 = processInboxItem;
+processInboxItem = function () {
+  const id = document.getElementById('inbox-process-id').value;
+  const type = document.getElementById('inbox-process-type').value;
+  const sub = document.getElementById('inbox-process-sub').value;
+  const text = (document.getElementById('inbox-process-text').value || '').trim();
+  const isBook = typeof looksLikeBook === 'function' && looksLikeBook(text) && ['idea', 'content', 'note'].includes(type);
+  if (['note', 'idea', 'contact'].includes(type) && !sub && !isBook) { toast('Escolha a subárea onde isso vai ficar', true); return; }
+  if (type === 'content' && !sub && !isBook) { toast('Escolha a subárea (a rede social ou a área) do conteúdo', true); return; }
+  _origProcessInboxItemV338.apply(this, arguments);
+  const item = (STATE.inbox || []).find(i => i.id === id);
+  if (!item || item.status === 'pending') return;
+  inboxConvert(item);
+};
+// formulários abertos a partir da Inbox: ao salvar, o item sai
+function _wrapConvSave(fnName, kind, listKey) {
+  const orig = window[fnName]; if (typeof orig !== 'function') return;
+  window[fnName] = function () {
+    const p = _inboxPendingConv && _inboxPendingConv.kind === kind ? _inboxPendingConv : null;
+    const r = orig.apply(this, arguments);
+    if (p && (STATE[listKey] || []).length > p.n) { _inboxPendingConv = null; _inboxRemove(p.id); toast('Saiu da Inbox ✓'); }
+    return r;
+  };
+}
+// abrir esses formulários por outro caminho cancela a conversão pendente
+['quickAddEventDay', 'openEventModal', 'editEvent', 'openGoalModal', 'editGoal', 'openPostModal', 'editPost'].forEach(fn => {
+  const orig = window[fn]; if (typeof orig !== 'function') return;
+  window[fn] = function () { _inboxPendingConv = null; return orig.apply(this, arguments); };
+});
+_wrapConvSave('saveEvent', 'event', 'events');
+_wrapConvSave('saveGoal', 'goal', 'goals');
+_wrapConvSave('savePost', 'post', 'posts');
+
+// itens classificados antes desta versão: mover para os lugares certos
+function inboxLegacy() { return (STATE.inbox || []).filter(i => i.status !== 'pending' && i.type && !['pending', 'purchase'].includes(i.type)); }
+function inboxMoveOne(id) {
+  const item = (STATE.inbox || []).find(i => i.id === id); if (!item) return;
+  const r = inboxConvert(item, { checkDup: true });
+  if (r === null) { openInboxProcess(id); toast('Escolha a subárea e salve', true); }
+}
+function inboxMoveAll() {
+  const res = { task: 0, note: 0, book: 0, dup: 0, left: 0 };
+  inboxLegacy().forEach(i => { const r = inboxConvert(i, { quiet: true, checkDup: true }); if (r && res[r] != null) res[r]++; else res.left++; });
+  const parts = [res.task && `${res.task} tarefa(s)`, res.book && `${res.book} livro(s) na Estante`, res.note && `${res.note} nota(s) nas subáreas`, res.dup && `${res.dup} que já existiam`].filter(Boolean);
+  toast(parts.length ? `Movi: ${parts.join(', ')}${res.left ? ` · ${res.left} precisam de você (subárea, data ou alvo)` : ''}` : 'Esses itens precisam de você: abra cada um.');
+  renderInbox();
+}
+const _origRenderInboxV338 = renderInbox;
+renderInbox = function () {
+  _origRenderInboxV338.apply(this, arguments);
+  const list = document.getElementById('inbox-list'); if (!list) return;
+  const legacy = inboxLegacy();
+  if (legacy.length && !document.getElementById('inbox-legacy')) {
+    const lbl = { task: 'tarefa', event: 'compromisso', goal: 'meta', idea: 'ideia', note: 'nota', contact: 'contato', content: 'conteúdo' };
+    list.insertAdjacentHTML('beforebegin', `<div class="card mb-3" id="inbox-legacy" style="border-left:3px solid var(--accent)">
+      <div class="font-semibold mb-1">${legacy.length} item(ns) já classificado(s) continuam na Inbox</div>
+      <div class="text-xs text-muted mb-2">Agora classificar cria o item de verdade e tira da Inbox. Livros vão para a Estante; notas e ideias para a página da subárea; tarefas para Tarefas (se já existir uma parecida, só sai da Inbox). Compras continuam aqui.</div>
+      ${legacy.map(i => `<div class="inbox-leg-row"><span class="text-xs badge badge-gray">${lbl[i.type] || i.type}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(i.text)}</span><button class="btn btn-ghost btn-sm" onclick="inboxMoveOne('${i.id}')">Mover</button></div>`).join('')}
+      <button class="btn btn-primary btn-sm mt-2" onclick="inboxMoveAll()">Mover todos</button>
+    </div>`);
+  }
+};
+const _origUpdateInboxBadgeV338 = updateInboxBadge;
+updateInboxBadge = function () { _origUpdateInboxBadgeV338.apply(this, arguments); const l = document.getElementById('inbox-legacy'); if (l && !inboxLegacy().length) l.remove(); };
+
+// ═════ Notas e ideias na página da subárea ═════
+function _areaNoteIcon(t) { return { note: '📝', idea: '💡', contact: '👤', content: '✍️' }[t] || '📝'; }
+function areaNoteEdit(id, subId) {
+  const n = id ? (STATE.areaNotes || []).find(x => x.id === id) : null;
+  _ensureModal('modal-anote', n ? 'Editar nota' : 'Nova nota', 460);
+  document.getElementById('modal-anote-body').innerHTML = `
+    <div class="form-group"><label class="form-label">Tipo</label><select id="anote-type" class="form-select">${[['note', '📝 Nota'], ['idea', '💡 Ideia'], ['contact', '👤 Contato'], ['content', '✍️ Conteúdo']].map(([v, l]) => `<option value="${v}" ${(n ? n.type : 'note') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Texto</label><textarea id="anote-text" class="form-input" rows="5" style="resize:vertical">${n ? _esc(n.text) : ''}</textarea></div>`;
+  document.getElementById('modal-anote-footer').innerHTML = `${n ? `<button class="btn btn-ghost" style="color:var(--danger)" onclick="areaNoteDelete('${n.id}')">Excluir</button>` : ''}<button class="btn btn-ghost" onclick="closeModal('modal-anote')">Cancelar</button><button class="btn btn-primary" onclick="areaNoteSave('${n ? n.id : ''}','${subId || ''}')">Salvar</button>`;
+  openModal('modal-anote');
+  setTimeout(() => { const t = document.getElementById('anote-text'); if (t) t.focus(); }, 30);
+}
+function areaNoteSave(id, subId) {
+  const text = (document.getElementById('anote-text').value || '').trim();
+  if (!text) { toast('Escreva alguma coisa', true); return; }
+  const type = document.getElementById('anote-type').value;
+  STATE.areaNotes = STATE.areaNotes || [];
+  const n = id && STATE.areaNotes.find(x => x.id === id);
+  if (n) { n.text = text; n.type = type; n.updatedAt = Date.now(); }
+  else { const dim = (STATE.dimensions || []).find(d => (d.subs || []).some(s => s.id === subId)); STATE.areaNotes.push({ id: uid(), text, type, dim: dim ? dim.id : '', sub: subId, created: Date.now() }); }
+  save(); closeModal('modal-anote'); if (currentPage === 'subarea') renderSubAreaPage(currentSubId);
+}
+function areaNoteDelete(id) {
+  if (!confirm('Excluir esta nota?')) return;
+  STATE.areaNotes = (STATE.areaNotes || []).filter(x => x.id !== id);
+  save(); closeModal('modal-anote'); if (currentPage === 'subarea') renderSubAreaPage(currentSubId);
+}
+const _origRenderSubAreaPageV338 = renderSubAreaPage;
+renderSubAreaPage = function (subId) {
+  _origRenderSubAreaPageV338.apply(this, arguments);
+  const c = document.getElementById('page-subarea'); if (!c) return;
+  const notes = (STATE.areaNotes || []).filter(n => n.sub === subId).sort((a, b) => (b.created || 0) - (a.created || 0));
+  c.insertAdjacentHTML('beforeend', `<div class="card mb-3" id="area-notes">
+    <div style="display:flex;justify-content:space-between;align-items:center" class="mb-2"><div class="font-semibold">📝 Notas e ideias</div><button class="btn btn-ghost btn-sm" onclick="areaNoteEdit(null,'${subId}')">+ Nota</button></div>
+    ${notes.length ? notes.map(n => `<div class="area-note" onclick="if(event.target.closest('a'))return;areaNoteEdit('${n.id}','${subId}')"><span>${_areaNoteIcon(n.type)}</span><div style="flex:1;min-width:0"><div class="area-note-t">${linkify(n.text)}</div><div class="text-xs text-muted">${formatInsertedAt(n.created)}</div></div></div>`).join('') : '<div class="text-sm text-muted">Nada por aqui. Notas, ideias e contatos classificados na Inbox com esta subárea aparecem aqui.</div>'}
+  </div>`);
 };
 
 </script>
