@@ -516,6 +516,16 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .hg-add{margin-top:4px;font-size:.75rem;border:1px dashed var(--border);border-radius:6px;background:none;color:var(--text2);padding:2px 6px;cursor:pointer}
 .hg-sug-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:.85rem;flex-wrap:wrap}
 
+
+/* ── itens aninhados no menu e trilha (v3.33.1) ── */
+.nav-subsubitem{padding-left:38px !important;font-size:.79rem !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page-crumb{font-size:.75rem;color:var(--text3);margin-bottom:6px}
+.page-crumb a{cursor:pointer;color:var(--text2)}
+.page-crumb a:hover{color:var(--accent);text-decoration:underline}
+.sub-extra-wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:16px}
+.sub-extra-card{cursor:pointer;border-left:3px solid var(--accent);margin:0 !important}
+.sub-extra-card:hover{box-shadow:var(--shadow-md)}
+
 .hide-mobile{}
 @media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
 .plan-week{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -7827,7 +7837,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.33.0';
+const APP_VERSION = '3.33.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -8799,15 +8809,32 @@ function navigateToSub(dimId, subId) {
 }
 
 // ── Barra lateral: dimensões com drill-down expansível (expandir/recolher subáreas) ──
+// Itens extras do menu. "sub" = dentro de qual subárea aparecem (por id ou nome); sem subárea → no nível da dimensão
 const SIDEBAR_EXTRAS = {
   profissional: [
-    { page: 'performance', label: 'Caderneta de Performance', icon: '◈' },
-    { page: 'pipeline', label: 'Pipeline de Candidaturas', icon: '🎯' }
+    { page: 'performance', label: 'Caderneta de Performance', icon: '◈', sub: 'prof-prof', subName: /^profissional$/i },
+    { page: 'pipeline', label: 'Pipeline de Candidaturas', icon: '🎯', sub: 'prof-prof', subName: /^profissional$/i }
   ],
   repertorio: [
     { page: 'books', label: 'Estante de Leitura', icon: '📚' }
   ]
 };
+function _extraSubId(dim, x) {
+  if (!x.sub && !x.subName) return null;
+  const subs = dim.subs || [];
+  const s = subs.find(y => y.id === x.sub) || (x.subName && subs.find(y => x.subName.test(y.name || '')));
+  return s ? s.id : null;
+}
+function extraParentOf(page) {
+  for (const [dimId, list] of Object.entries(SIDEBAR_EXTRAS)) {
+    const x = list.find(i => i.page === page); if (!x) continue;
+    const dim = (STATE.dimensions || []).find(d => d.id === dimId);
+    if (!dim) return null;
+    const subId = _extraSubId(dim, x);
+    return { dim, sub: subId ? dim.subs.find(s => s.id === subId) : null };
+  }
+  return null;
+}
 function renderSidebarDims() {
   const box = document.getElementById('sidebar-dims');
   if (!box) return;
@@ -8820,13 +8847,18 @@ function renderSidebarDims() {
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.name}</span>
         ${(subs.length || SIDEBAR_EXTRAS[d.id]) ? `<span class="nav-caret" onclick="event.stopPropagation();toggleDimExpand('${d.id}')" style="cursor:pointer;color:var(--text3);font-size:.7rem;transition:transform .18s;${open?'transform:rotate(90deg)':''}">▸</span>` : ''}
       </button>
-      ${open && (subs.length || SIDEBAR_EXTRAS[d.id]) ? `<div class="sidebar-subs" style="animation:slideDown .18s ease">${subs.map(s => `
-        <button class="nav-item nav-subitem" onclick="navigateToSub('${d.id}','${s.id}')">
-          <span style="width:6px;height:6px;border-radius:50%;background:${d.color};opacity:.55;flex-shrink:0"></span> ${s.name}
-        </button>`).join('')}${(SIDEBAR_EXTRAS[d.id]||[]).map(x => `
-        <button class="nav-item nav-subitem" id="nav-${x.page}" onclick="navigate('${x.page}')" style="${currentPage===x.page?'background:var(--surface2);font-weight:600':''}">
+      ${open && (subs.length || SIDEBAR_EXTRAS[d.id]) ? (() => {
+        const extras = SIDEBAR_EXTRAS[d.id] || [];
+        const extraBtn = (x, nested) => `
+        <button class="nav-item nav-subitem${nested ? ' nav-subsubitem' : ''}" id="nav-${x.page}" onclick="navigate('${x.page}')" style="${currentPage===x.page?'background:var(--surface2);font-weight:600':''}">
           <span style="flex-shrink:0;font-size:.75rem">${x.icon}</span> ${x.label}
-        </button>`).join('')}</div>` : ''}
+        </button>`;
+        const parentOfCurrent = extras.some(x => x.page === currentPage) ? _extraSubId(d, extras.find(x => x.page === currentPage)) : null;
+        return `<div class="sidebar-subs" style="animation:slideDown .18s ease">${subs.map(s => `
+        <button class="nav-item nav-subitem" onclick="navigateToSub('${d.id}','${s.id}')" style="${parentOfCurrent===s.id?'font-weight:600;color:var(--text)':''}">
+          <span style="width:6px;height:6px;border-radius:50%;background:${d.color};opacity:.55;flex-shrink:0"></span> ${s.name}
+        </button>${extras.filter(x => _extraSubId(d, x) === s.id).map(x => extraBtn(x, true)).join('')}`).join('')}${extras.filter(x => !_extraSubId(d, x)).map(x => extraBtn(x, false)).join('')}</div>`;
+      })() : ''}
     </div>`;
   }).join('');
   if (currentPage && currentPage.startsWith('dim_')) {
@@ -12252,6 +12284,47 @@ opsIntelligence = function () {
   if (sug.length) items.push({ sev: 'suggest', icon: '🔗', title: `${sug.length} hábito(s) podem ser ligados a metas`, detail: sug.slice(0, 2).map(x => `${x.h.title} → ${x.g.title}`).join(' · '), action: "navigate('habits')", quickBtn: { label: 'Ligar', fn: 'acceptAllHabitLinks()' } });
   const order = { critical: 0, warn: 1, suggest: 2, info: 3 };
   return items.sort((x, y) => (order[x.sev] ?? 9) - (order[y.sev] ?? 9));
+};
+
+
+// ── trilha "Dimensão › Subárea" no topo das páginas aninhadas ──
+function _addCrumb(pageId, page) {
+  const el = document.getElementById(pageId);
+  const par = extraParentOf(page);
+  if (!el || !par || el.querySelector('.page-crumb')) return;
+  const html = `<div class="page-crumb"><a onclick="navigate('dim_${par.dim.id}')">${_esc(par.dim.name)}</a>${par.sub ? ` › <a onclick="navigateToSub('${par.dim.id}','${par.sub.id}')">${_esc(par.sub.name)}</a>` : ''}</div>`;
+  el.insertAdjacentHTML('afterbegin', html);
+}
+const _origRenderPipelineV334 = renderPipeline;
+renderPipeline = function () { _origRenderPipelineV334(); _addCrumb('page-pipeline', 'pipeline'); };
+const _origRenderPerformanceV334 = renderPerformance;
+renderPerformance = function () { _origRenderPerformanceV334(); _addCrumb('page-performance', 'performance'); };
+// ── página da subárea: atalhos para o que mora dentro dela ──
+const _origRenderSubAreaV334 = renderSubAreaPage;
+renderSubAreaPage = function (subId) {
+  _origRenderSubAreaV334(subId);
+  const page = document.getElementById('page-subarea');
+  if (!page) return;
+  const cards = [];
+  for (const [dimId, list] of Object.entries(SIDEBAR_EXTRAS)) {
+    const dim = (STATE.dimensions || []).find(d => d.id === dimId); if (!dim) continue;
+    list.filter(x => _extraSubId(dim, x) === subId).forEach(x => {
+      let sub = '';
+      if (x.page === 'pipeline') {
+        const act = (STATE.applications || []).filter(a => !a.outcome);
+        const nx = act.filter(a => a.nextDate && _daysUntil(a.nextDate) >= 0).sort((a, b) => a.nextDate.localeCompare(b.nextDate))[0];
+        sub = `${act.length} em andamento${nx ? ` · próxima: ${_esc(nx.nextStep || 'etapa')} — ${_esc(nx.company)} ${_whenLabel(nx.nextDate)}` : ''}`;
+      } else if (x.page === 'performance') {
+        const n = (STATE.performanceLogs || []).length;
+        sub = n ? `${n} entrega${n > 1 ? 's' : ''} registrada${n > 1 ? 's' : ''}` : 'Nenhuma entrega registrada ainda — comece pelas suas 3 melhores';
+      }
+      cards.push(`<div class="card sub-extra-card" onclick="navigate('${x.page}')"><div class="font-semibold">${x.icon} ${x.label} →</div><div class="text-sm text-muted">${sub}</div></div>`);
+    });
+  }
+  if (!cards.length || page.querySelector('.sub-extra-wrap')) return;
+  const html = `<div class="sub-extra-wrap">${cards.join('')}</div>`;
+  const anchor = page.querySelector('.section-header');
+  if (anchor) anchor.insertAdjacentHTML('afterend', html); else page.insertAdjacentHTML('afterbegin', html);
 };
 
 </script>
