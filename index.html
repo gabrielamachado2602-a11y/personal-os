@@ -565,6 +565,36 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .time-bar{width:120px;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden}
 .time-bar span{display:block;height:100%}
 
+
+/* ── expediente (v3.36.0) ── */
+.gc-wband{position:absolute;left:0;right:0;background:color-mix(in srgb,var(--wc) 10%,transparent);border-left:3px solid var(--wc);pointer-events:none;z-index:0;box-sizing:border-box}
+.gc-wband-head{pointer-events:auto;position:relative;z-index:1;font-size:.66rem;padding:1px 6px;color:var(--wc);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.gc-wband-head:hover{text-decoration:underline}
+.gc-wlunch{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,rgba(0,0,0,.06) 0 4px,transparent 4px 9px);font-size:.62rem;color:var(--text3);padding:1px 6px;box-sizing:border-box}
+.work-check{display:flex;gap:6px;align-items:center;font-size:.84rem;cursor:pointer;margin:2px 0 8px;color:var(--text)}
+.work-tag{font-size:.7rem;color:var(--accent)}
+.plan-work{font-size:.72rem;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);border-radius:6px;padding:3px 6px;margin-bottom:4px;cursor:pointer}
+.wd-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:10px}
+.wd-tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius,10px);padding:10px 12px}
+.wd-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--surface2);margin:6px 0 4px}
+.wd-bar span{display:block;height:100%}
+.b-meet{background:#5A7080}.b-task{background:var(--accent)}.b-pers{background:#907880}.b-free{background:var(--border)}
+.wd-legend{display:flex;gap:12px;flex-wrap:wrap;color:var(--text2);margin-bottom:12px}
+.wd-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.wd-cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:14px;align-items:start}
+@media (max-width:900px){.wd-cols{grid-template-columns:1fr}}
+.wd-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-left:3px solid var(--border);font-size:.86rem;margin:2px 0;border-radius:0 6px 6px 0}
+.wd-t{font-variant-numeric:tabular-nums;color:var(--text2);font-size:.78rem;width:40px;flex-shrink:0}
+.wd-edge{color:var(--text3);font-size:.78rem;border-left-color:transparent;padding:2px 8px}
+.wd-meet{border-left-color:#5A7080;background:color-mix(in srgb,#5A7080 8%,transparent)}
+.wd-task,.wd-focus{border-left-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.wd-fill{border-left-color:#907880;border-left-style:dashed}
+.wd-pers{border-left-color:#907880}
+.wd-lunch{color:var(--text2);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.wd-lunch input{border:1px solid var(--border);border-radius:4px;padding:1px 4px;background:var(--surface);color:var(--text)}
+.wd-lunch.text-xs,.wd-row.wd-lunch{}
+.wd-now{font-size:.7rem;color:#d93025;border-top:2px solid #d93025;margin:4px 0;padding-top:1px}
+
 .hide-mobile{}
 @media(max-width:768px){.hide-mobile{display:none}#topbar-date{display:none}}
 .plan-week{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -659,6 +689,9 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
   </button>
   <button class="nav-item" onclick="navigate('planner')" id="nav-planner">
     <span class="nav-icon">⚡</span> Planejar semana
+  </button>
+  <button class="nav-item" onclick="navigate('workday')" id="nav-workday">
+    <span class="nav-icon">💼</span> Meu expediente
   </button>
   <button class="nav-item" onclick="navigate('insights')" id="nav-insights">
     <span class="nav-icon">✦</span> Inteligência
@@ -791,6 +824,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
       <button class="chip" onclick="filterTasks('overdue',this)">Atrasadas</button>
       <button class="chip" onclick="filterTasks('urgent',this)">Urgente</button>
       <button class="chip" onclick="filterTasks('not_started',this)">A fazer</button>
+      <button class="chip" onclick="filterTasks('work',this)">💼 Trabalho</button>
       <button class="chip" onclick="filterTasks('done',this)">Concluídas</button>
     </div>
     <div id="tasks-list"></div>
@@ -916,6 +950,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
   <div id="page-pipeline" class="page hidden"></div>
   <div id="page-books" class="page hidden"></div>
   <div id="page-planner" class="page hidden"></div>
+  <div id="page-workday" class="page hidden"></div>
   <div id="page-insights" class="page hidden"></div>
 
 <!-- SETTINGS PAGE -->
@@ -1133,6 +1168,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
         </select>
       </div>
     </div>
+    <label class="work-check"><input type="checkbox" id="task-work"> 💼 Tarefa do trabalho <span class="text-xs text-muted">(entra no seu expediente)</span></label>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Dimensão</label>
@@ -1286,6 +1322,10 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
         <label class="form-label">Sub-área</label>
         <select class="form-select" id="event-sub"></select>
       </div>
+    </div>
+    <div class="form-group">
+      <label class="work-check"><input type="checkbox" id="event-work"> 💼 Do trabalho <span class="text-xs text-muted">(reunião ou compromisso da empresa)</span></label>
+      <label class="work-check"><input type="checkbox" id="event-workblock"> Este é o meu bloco de expediente <span class="text-xs text-muted">(tarefas e reuniões do trabalho entram dentro dele)</span></label>
     </div>
     <div class="form-group">
       <label class="form-label">Notas</label>
@@ -3186,7 +3226,7 @@ function navigate(page, subId) {
     projects: 'Projetos', tasks: 'Tarefas', agenda: 'Agenda',
     habits: 'Hábitos', energy: 'Energia & Capacidade',
     financial: 'Financial OS', social: 'Redes Sociais', tempo: 'Dimensão de Tempo', settings: 'Configurações',
-    performance: 'Caderneta de Performance', pipeline: 'Pipeline de Candidaturas', books: 'Estante de Leitura', planner: 'Planejar semana', insights: 'Inteligência'
+    performance: 'Caderneta de Performance', pipeline: 'Pipeline de Candidaturas', books: 'Estante de Leitura', planner: 'Planejar semana', workday: 'Meu expediente', insights: 'Inteligência'
   };
   if (!page.startsWith('dim_') && page !== 'subarea') {
     document.getElementById('topbar-title').textContent = titles[page] || page;
@@ -3246,6 +3286,7 @@ function renderPage(page, subId) {
     case 'pipeline': renderPipeline(); break;
     case 'books': renderBooks(); break;
     case 'planner': renderPlanner(); break;
+    case 'workday': renderWorkday(); break;
     case 'insights': renderInsights(); break;
   }
 }
@@ -4368,6 +4409,7 @@ function renderTasks() {
   else if (taskFilter === 'urgent') items = items.filter(t => t.priority === 'urgent' && t.status !== 'done');
   else if (taskFilter === 'not_started') items = items.filter(t => t.status === 'not_started');
   else if (taskFilter === 'done') items = items.filter(t => t.status === 'done');
+  else if (taskFilter === 'work') items = items.filter(t => t.work && t.status !== 'done' && t.status !== 'cancelled');
   else if (taskFilter.startsWith('dim_')) {
     const dim = taskFilter.replace('dim_', '');
     items = items.filter(t => t.dim === dim && t.status !== 'done');
@@ -4483,6 +4525,7 @@ function saveTask() {
     goalId: document.getElementById('task-goal')?.value || '',
     estimatedCost: parseFloat(document.getElementById('task-cost').value) || 0,
     effort: parseFloat(document.getElementById('task-effort').value) || 0,
+    work: !!(document.getElementById('task-work') || {}).checked,
     created: Date.now(), updatedAt: Date.now()
   };
   if (task.status === 'done' && !task.completedAt) task.completedAt = Date.now();
@@ -5392,6 +5435,8 @@ function saveEvent() {
     estimatedCost: parseFloat(document.getElementById('event-cost').value) || 0,
     dim: document.getElementById('event-dim').value,
     sub: document.getElementById('event-sub').value,
+    work: !!(document.getElementById('event-work') || {}).checked,
+    workBlock: !!(document.getElementById('event-workblock') || {}).checked,
     attachments,
     created: Date.now(), updatedAt: Date.now()
   };
@@ -7890,7 +7935,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.35.0';
+const APP_VERSION = '3.36.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -10811,13 +10856,16 @@ function renderPlanner() {
   const over = P.unplaced.length || P.late.length;
   const dayCol = (day) => {
     const dt = new Date(day.d + 'T12:00:00');
-    const busy = busyIntervals(day.d).filter(b => b.e > _hmToMin(cfg.dayStart) && b.s < _hmToMin(cfg.dayEnd));
+    const busy = busyIntervals(day.d).filter(b => !isWorkBlock(b.ev) && b.e > _hmToMin(cfg.dayStart) && b.s < _hmToMin(cfg.dayEnd));
+    const WD = workDay(day.d);
     return `<div class="plan-day">
       <div class="plan-day-head"><strong>${_WD[dt.getDay()]} ${dt.getDate()}</strong><span class="text-xs text-muted">${_fmtDur(day.freeMin)} livres</span></div>
+      ${WD ? `<div class="plan-work" onclick="_wdDate='${day.d}';navigate('workday')" title="Abrir o expediente">💼 ${_minToHM(WD.blocks[0].s)}–${_minToHM(WD.blocks[WD.blocks.length - 1].e)} · ${_fmtDur(day.workFreeMin || 0)} livres no expediente</div>` : ''}
       ${busy.slice(0, 6).map(b => `<div class="plan-busy">${_minToHM(Math.max(b.s, 0))}–${_minToHM(b.e)} ${_esc(b.title)}</div>`).join('')}
       ${day.items.map(it => `<div class="plan-item${it.late ? ' late' : ''}">
           <div class="text-xs" style="opacity:.75">${_minToHM(it.s)}–${_minToHM(it.e)}${it.part ? ` · parte ${it.part}` : ''}${it.late ? ' · depois do prazo' : ''}</div>
-          <div style="font-size:.85rem;font-weight:500">${_esc(it.task.title)}</div>
+          <div style="font-size:.85rem;font-weight:500">${it.task.work ? '💼 ' : ''}${_esc(it.task.title)}</div>
+          ${it.inWork && !it.task.work ? '<div class="text-xs" style="opacity:.7">encaixe no expediente</div>' : ''}
           ${it.assumed ? '<div class="text-xs" style="opacity:.7">sem estimativa: considerei 30 min</div>' : ''}
           <button class="btn btn-ghost btn-sm" style="padding:1px 6px;margin-top:4px;font-size:.7rem" onclick="planToAgenda('${it.task.id}','${day.d}',${it.s},${it.e})">📅 Agenda</button>
         </div>`).join('') || `<div class="text-xs text-muted" style="padding:4px 0">${day.freeMin ? 'tempo livre' : 'dia cheio'}</div>`}
@@ -10844,7 +10892,7 @@ function renderPlanner() {
       : `<div class="text-sm text-muted">Tudo cabe. As tarefas foram encaixadas pelos prazos e pela prioridade, nos seus horários livres.</div>`}
       <div class="text-xs text-muted mt-2">Considerando seu dia das
         <input type="time" value="${cfg.dayStart}" onchange="setPlannerCfg('dayStart',this.value)" style="border:1px solid var(--border);border-radius:4px;padding:1px 4px;background:var(--surface);color:var(--text)"> às
-        <input type="time" value="${cfg.dayEnd}" onchange="setPlannerCfg('dayEnd',this.value)" style="border:1px solid var(--border);border-radius:4px;padding:1px 4px;background:var(--surface);color:var(--text)">, descontando compromissos e deslocamentos da Agenda.</div>
+        <input type="time" value="${cfg.dayEnd}" onchange="setPlannerCfg('dayEnd',this.value)" style="border:1px solid var(--border);border-radius:4px;padding:1px 4px;background:var(--surface);color:var(--text)">, descontando compromissos e deslocamentos da Agenda. No expediente (💼) entram primeiro as tarefas do trabalho; as pessoais só no tempo que sobrar.</div>
     </div>
     <div class="plan-week">${P.days.map(dayCol).join('')}</div>
     ${P.later.length ? `<div class="text-xs text-muted mt-3">Fora desta semana (prazo depois de ${formatDate(P.weekEnd)}): ${P.later.map(t => _esc(t.title)).join(' · ')}</div>` : ''}
@@ -11550,9 +11598,9 @@ function gcRenderTimeGrid(dates) {
   let hours = '';
   for (let h = 1; h < 24; h++) hours += `<div class="gc-hour" style="top:${h * GC_HP}px">${String(h).padStart(2, '0')}:00</div>`;
   const colsHTML = dates.map(d => {
-    const laid = layoutDayEvents(gcEventsOn(d).filter(e => !gcIsMultiDay(e)), d);
+    const laid = layoutDayEvents(gcEventsOn(d).filter(e => !gcIsMultiDay(e) && !isWorkBlock(e)), d);
     return `<div class="gc-col${d === today ? ' today' : ''}" data-date="${d}" data-drop-date="${d}" data-timegrid="gc" onpointerdown="gcGridDown(event,'${d}')">
-      ${laid.map(it => gcEventBlock(it, d)).join('')}
+      ${gcWorkBand(d)}${laid.map(it => gcEventBlock(it, d)).join('')}
       ${d === today ? `<div class="gc-now" style="top:${nowMin / 60 * GC_HP}px"></div>` : ''}
     </div>`;
   }).join('');
@@ -11584,7 +11632,7 @@ function gcEventBlock(it, d) {
   if (tb > 0) travel += `<div class="gc-travel" title="Deslocamento: ${tb} min" style="top:${Math.max(0, (it.startMin - tb) / 60 * GC_HP)}px;height:${Math.min(tb, it.startMin) / 60 * GC_HP}px;left:${left};width:${w};background:${hatch}"></div>`;
   if (ta > 0) travel += `<div class="gc-travel" title="Deslocamento: ${ta} min" style="top:${it.endMin / 60 * GC_HP}px;height:${ta / 60 * GC_HP}px;left:${left};width:${w};background:${hatch}"></div>`;
   return travel + `<div class="gc-ev${short ? ' short' : ''}" data-id="${e.id}" data-occ="${d}" style="top:${top}px;height:${h}px;left:${left};width:${w};background:${color}" onpointerdown="gcEvDown(event,'${e.id}','${d}')" title="${_esc(e.title)}">
-    <div class="gc-ev-t">${_esc(e.title)}${short ? `<span class="gc-ev-time">, ${formatTime(e.start)}</span>` : ''}</div>
+    <div class="gc-ev-t">${e.work ? '💼 ' : ''}${_esc(e.title)}${short ? `<span class="gc-ev-time">, ${formatTime(e.start)}</span>` : ''}</div>
     ${!short ? `<div class="gc-ev-time">${formatTime(e.start)} – ${formatTime(e.end || e.start) || ''}</div>` : ''}
     ${h > 70 && e.location ? `<div class="gc-ev-loc">${_esc(e.location)}</div>` : ''}
     <div class="gc-resize" onpointerdown="gcResizeDown(event,'${e.id}','${d}')" title="Arraste para mudar a duração"></div>
@@ -11880,6 +11928,7 @@ function gcOpenQuickCreate(d, s, e, rect) {
       <span><input type="time" id="gc-qc-s" value="${_gcHM(s)}" step="900"> – <input type="time" id="gc-qc-e" value="${_gcHM(Math.min(e, 1439))}" step="900"></span></div></div>
     <div class="gc-pop-row" id="gc-qc-due" style="display:none"><span class="gc-ic">☐</span><div>Prazo: ${gcDateLabel(d)}</div></div>
     <div class="gc-pop-row"><span class="gc-ic">●</span><div style="flex:1"><select id="gc-qc-dim" class="form-select" style="padding:4px 8px;font-size:.8rem"></select></div></div>
+    <div class="gc-pop-row"><span class="gc-ic">💼</span><label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="gc-qc-work" ${_inWorkWindow(d, s, e) ? 'checked' : ''}> Do trabalho</label></div>
     <div class="gc-qc-actions"><button class="btn btn-ghost btn-sm" onclick="gcQuickMore()">Mais opções</button><button class="btn btn-primary btn-sm" onclick="gcQuickSave()">Salvar</button></div>`);
   populateDimSelect('gc-qc-dim', '');
   setTimeout(() => { const t = document.getElementById('gc-qc-title'); if (t) t.focus(); }, 30);
@@ -11897,14 +11946,15 @@ function gcQuickSave() {
   const title = (document.getElementById('gc-qc-title').value || '').trim();
   if (!title) { toast('Digite um título', true); document.getElementById('gc-qc-title').focus(); return; }
   const dim = document.getElementById('gc-qc-dim').value || '';
+  const work = !!(document.getElementById('gc-qc-work') || {}).checked;
   if (_gcQC.kind === 'task') {
-    STATE.tasks.push({ id: uid(), title, desc: '', due: _gcQC.d, priority: 'medium', status: 'not_started', dim, sub: '', goalId: '', effort: '', created: Date.now(), updatedAt: Date.now() });
+    STATE.tasks.push({ id: uid(), title, desc: '', due: _gcQC.d, priority: 'medium', status: 'not_started', dim, sub: '', goalId: '', effort: '', work, created: Date.now(), updatedAt: Date.now() });
     toast('Tarefa criada');
   } else {
     const s = document.getElementById('gc-qc-s').value || _gcHM(_gcQC.s);
     let e = document.getElementById('gc-qc-e').value || _gcHM(_gcQC.e);
     if (e <= s) e = _gcHM(_hmToMin(s) + 60);
-    STATE.events.push({ id: uid(), title, start: `${_gcQC.d}T${s}`, end: `${_gcQC.d}T${e}`, location: '', notes: '', recurrence: 'none', recurDays: [], recurUntil: '', travelBefore: 0, travelAfter: 0, goalId: '', estimatedCost: 0, dim, sub: '', attachments: [], created: Date.now(), updatedAt: Date.now() });
+    STATE.events.push({ id: uid(), title, start: `${_gcQC.d}T${s}`, end: `${_gcQC.d}T${e}`, location: '', notes: '', recurrence: 'none', recurDays: [], recurUntil: '', travelBefore: 0, travelAfter: 0, goalId: '', estimatedCost: 0, dim, sub: '', attachments: [], work, created: Date.now(), updatedAt: Date.now() });
     toast('Compromisso criado');
   }
   _gcQC = null;
@@ -11913,9 +11963,11 @@ function gcQuickSave() {
 function gcQuickMore() {
   if (!_gcQC) return;
   const q = _gcQC, title = document.getElementById('gc-qc-title').value, dim = document.getElementById('gc-qc-dim').value;
+  const qWork = !!(document.getElementById('gc-qc-work') || {}).checked;
   const s = (document.getElementById('gc-qc-s') || {}).value || _gcHM(q.s), e = (document.getElementById('gc-qc-e') || {}).value || _gcHM(q.e);
   gcClosePop(); _gcQC = null;
   if (q.kind === 'task') {
+    _preWork = qWork;
     openTaskModal(null, dim || undefined);
     document.getElementById('task-title').value = title;
     document.getElementById('task-due').value = q.d;
@@ -11925,6 +11977,7 @@ function gcQuickMore() {
     setEventDateTime('start', q.d, s);
     setEventDateTime('end', q.d, e);
     if (dim) { populateDimSelect('event-dim', dim); populateSubSelect('event-sub', 'event-dim', ''); }
+    const wc = document.getElementById('event-work'); if (wc) wc.checked = qWork;
   }
 }
 function gcCreateAtNextHour() {
@@ -12665,6 +12718,7 @@ function _timerRefresh() {
   else if (currentPage === 'dashboard') renderDashboard();
   else if (currentPage === 'planner') renderPlanner();
   else if (currentPage === 'insights') renderInsights();
+  else if (currentPage === 'workday') renderWorkday();
   const id = (document.getElementById('task-edit-id') || {}).value;
   if (id && !document.getElementById('modal-task').classList.contains('hidden')) renderTaskTimeBox(id);
 }
@@ -12791,6 +12845,446 @@ renderPlanner = function () {
   const card = document.querySelector('#page-planner .card');
   if (card && cal.ready && !card.querySelector('.cal-note')) card.insertAdjacentHTML('beforeend', `<div class="text-xs mt-2 cal-note" style="color:var(--accent)">⏱ Durações ajustadas ao seu ritmo real: você costuma levar ${(Math.round(cal.factor * 10) / 10).toLocaleString('pt-BR')}x o estimado. Tarefas já começadas contam só o tempo que falta.</div>`);
 };
+
+
+// ═══════════════════════════════════════════════════════════
+//  v3.36.0 — EXPEDIENTE (bloco de trabalho como contêiner)
+//  event.workBlock = bloco de expediente · event.work / task.work = marca "do trabalho"
+//  settings.workLunch = {start,end} (padrão 12:00–13:00) · settings.workLunchByDate[d] = {start,end} | null (sem almoço)
+// ═══════════════════════════════════════════════════════════
+function isWorkBlock(e) { return !!(e && e.workBlock); }
+function _workLunchCfg() { const s = STATE.settings || {}; return s.workLunch || { start: '12:00', end: '13:00' }; }
+function workLunchFor(d) {
+  const by = (STATE.settings && STATE.settings.workLunchByDate) || {};
+  const o = Object.prototype.hasOwnProperty.call(by, d) ? by[d] : undefined;
+  if (o === null) return null;
+  const c = o || _workLunchCfg();
+  if (!c || !c.start || !c.end || c.end <= c.start) return null;
+  return { s: _hmToMin(c.start), e: _hmToMin(c.end) };
+}
+function _evMin(e, d) {
+  if (!e.start || e.start.length <= 10) return null;
+  const sD = e.start.slice(0, 10), eD = (e.end || e.start).slice(0, 10);
+  const s = sD === d ? _hmToMin(e.start.slice(11, 16)) : 0;
+  let en = e.end ? (eD === d ? _hmToMin(e.end.slice(11, 16)) : 1440) : s + 60;
+  if (en <= s) en = s + 30;
+  return { s, e: en };
+}
+function _ovl(s, e, list) { return list.reduce((t, w) => t + Math.max(0, Math.min(e, w.e) - Math.max(s, w.s)), 0); }
+function _subtract(wins, cut) {
+  let out = wins.map(w => ({ ...w }));
+  for (const c of cut) { const nx = []; for (const w of out) { if (c.e <= w.s || c.s >= w.e) { nx.push(w); continue; } if (c.s > w.s) nx.push({ s: w.s, e: c.s }); if (c.e < w.e) nx.push({ s: c.e, e: w.e }); } out = nx; }
+  return out.filter(w => w.e > w.s);
+}
+// Retrato de um dia de expediente (null se não houver bloco)
+function workDay(d) {
+  const evs = getEventsForDate(d);
+  const blocks = evs.filter(e => isWorkBlock(e) && !gcIsMultiDay(e)).map(e => ({ ..._evMin(e, d), ev: e })).filter(b => b.s != null && b.e > b.s).sort((a, b) => a.s - b.s);
+  if (!blocks.length) return null;
+  const lr = workLunchFor(d);
+  const lunch = lr && _ovl(lr.s, lr.e, blocks) > 0 ? lr : null;
+  const wins = _subtract(_mergeBusy(blocks.map(b => ({ s: b.s, e: b.e }))), lunch ? [lunch] : []);
+  const workMin = wins.reduce((t, w) => t + w.e - w.s, 0);
+  const others = busyIntervals(d).filter(b => !isWorkBlock(b.ev) && !gcIsMultiDay(b.ev));
+  const minIn = (list) => _mergeBusy(list.slice().sort((a, b) => a.s - b.s)).reduce((t, x) => t + _ovl(x.s, x.e, wins), 0);
+  const meetings = others.filter(x => !x.ev.taskId && x.ev.work);
+  const focus = others.filter(x => x.ev.taskId);
+  const personal = others.filter(x => !x.ev.taskId && !x.ev.work);
+  const busyMin = minIn(others);
+  const meetingMin = minIn(meetings), focusMin = minIn(focus);
+  const personalMin = Math.max(0, busyMin - minIn(meetings.concat(focus)));
+  const meetingsOutMin = meetings.reduce((t, x) => t + Math.max(0, (x.e - x.s) - _ovl(x.s, x.e, wins)), 0);
+  return { d, blocks, lunch, wins, workMin, others, meetings, focus, personal, busyMin, meetingMin, focusMin, personalMin, meetingsOutMin, freeMin: Math.max(0, workMin - busyMin) };
+}
+// Janelas livres dentro do expediente (para o Planejador)
+function workGaps(d, fromMin) {
+  const W = workDay(d); if (!W) return [];
+  const cfg = _plannerCfg();
+  const busy = _mergeBusy(W.others.map(b => ({ s: b.s - cfg.buffer, e: b.e + cfg.buffer })).sort((a, b) => a.s - b.s));
+  let gaps = _subtract(W.wins, busy);
+  if (fromMin != null) gaps = _subtract(gaps, [{ s: 0, e: fromMin }]);
+  return gaps.filter(b => b.e - b.s >= cfg.minBlock);
+}
+
+// ── Planejador: o expediente recebe primeiro as tarefas do trabalho; sobrou, entram as pessoais ──
+planWeek = function (offset) {
+  const today = todayStr();
+  const t0 = new Date(today + 'T12:00:00');
+  const mon = _dateAdd(today, -((t0.getDay() + 6) % 7) + 7 * (offset || 0));
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = _dateAdd(mon, i);
+    if (d < today) continue;
+    const from = d === today ? Math.ceil((_nowMin() + 10) / 15) * 15 : null;
+    const blocks = freeBlocks(d, from).map(b => ({ ...b, w: false })); // fora do expediente (o bloco conta como ocupado)
+    const wblocks = workGaps(d, from).map(b => ({ ...b, w: true }));
+    const pf = blocks.reduce((s, b) => s + b.e - b.s, 0), wf = wblocks.reduce((s, b) => s + b.e - b.s, 0);
+    days.push({ d, blocks, wblocks, freeMin: pf + wf, workFreeMin: wf, personalFreeMin: pf, hasWork: !!workDay(d), items: [] });
+  }
+  const weekEnd = _dateAdd(mon, 6);
+  const scheduled = new Set((STATE.events || []).filter(e => e.taskId && e.start && e.start.slice(0, 10) >= today).map(e => e.taskId));
+  const open = (STATE.tasks || []).filter(_taskOpen);
+  const pool = open.filter(t => !scheduled.has(t.id) && (!t.due || t.due <= weekEnd || ['urgent', 'high'].includes(t.priority)));
+  const later = open.filter(t => !scheduled.has(t.id) && !pool.includes(t));
+  const sc = (t) => _scoreTask(t, null, false).score;
+  pool.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || sc(b) - sc(a));
+  const ordered = pool.filter(t => t.work).concat(pool.filter(t => !t.work));
+  const unplaced = [], late = [];
+  let taskMin = 0;
+  for (const t of ordered) {
+    const eff = _taskDurH(t);
+    const dur = Math.round((eff || 0.5) * 60);
+    taskMin += dur;
+    let rem = dur; const parts = [];
+    const place = (maxDay, kind) => {
+      for (const day of days) {
+        if (rem <= 0) break;
+        if (maxDay && day.d > maxDay) break;
+        for (const b of (kind === 'w' ? day.wblocks : day.blocks)) {
+          if (rem <= 0) break;
+          const len = b.e - b.s;
+          if (len <= 0) continue;
+          const chunk = Math.min(rem, len);
+          if (chunk < rem && chunk < 30) continue;
+          parts.push({ day, s: b.s, e: b.s + chunk, w: kind === 'w' });
+          b.s += chunk; rem -= chunk;
+        }
+      }
+    };
+    const kinds = t.work ? ['w'] : ['p', 'w'];
+    const due = t.due && t.due >= (days[0] || {}).d ? t.due : null;
+    kinds.forEach(k => place(due, k));
+    let isLate = false;
+    if (rem > 0 && t.due) { isLate = true; kinds.forEach(k => place(null, k)); }
+    parts.forEach((p, i) => p.day.items.push({ task: t, s: p.s, e: p.e, inWork: p.w, part: parts.length > 1 ? `${i + 1}/${parts.length}` : '', late: isLate && p.day.d > (t.due || ''), assumed: !eff }));
+    if (rem > 0) unplaced.push({ task: t, missing: rem, work: !!t.work });
+    else if (isLate && parts.some(p => p.day.d > t.due)) late.push(t);
+  }
+  days.forEach(d => d.items.sort((a, b) => a.s - b.s));
+  const freeMin = days.reduce((s, d) => s + d.freeMin, 0);
+  const postpone = (unplaced.length || late.length)
+    ? [...pool].filter(t => !['urgent', 'high'].includes(t.priority)).sort((a, b) => sc(a) - sc(b)).slice(0, 2) : [];
+  return { mon, weekEnd, days, unplaced, late, later, taskMin, freeMin, postpone };
+};
+function _planForDate(d) {
+  const today = todayStr(); if (d < today) return null;
+  const wk = (x) => { const dt = new Date(x + 'T12:00:00'); return _dateAdd(x, -((dt.getDay() + 6) % 7)); };
+  const off = Math.round((new Date(wk(d) + 'T12:00:00') - new Date(wk(today) + 'T12:00:00')) / (7 * 86400000));
+  if (off > 3) return null;
+  return planWeek(off).days.find(x => x.d === d) || null;
+}
+
+// ── "O que faço agora": no expediente, trabalho primeiro ──
+whatNow = function () {
+  const today = todayStr(), now = _nowMin();
+  const W = workDay(today);
+  const win = W && W.wins.find(w => w.s <= now && w.e > now);
+  const inLunch = W && W.lunch && now >= W.lunch.s && now < W.lunch.e;
+  const busy = busyIntervals(today).filter(b => !isWorkBlock(b.ev));
+  if (inLunch) busy.push({ s: W.lunch.s, e: W.lunch.e, title: 'Almoço' });
+  const current = busy.filter(b => b.s <= now && b.e > now).sort((a, b) => (a.e - a.s) - (b.e - b.s))[0] || null;
+  let next = busy.filter(b => b.s > now).sort((a, b) => a.s - b.s)[0] || null;
+  if (win) {
+    const lim = [{ s: win.e, title: W.lunch && win.e === W.lunch.s ? 'Almoço' : 'fim do expediente' }];
+    lim.forEach(l => { if (!next || l.s < next.s) next = { s: l.s, e: l.s, title: l.title }; });
+  }
+  const endDay = _hmToMin(_plannerCfg().dayEnd);
+  const windowMin = current ? null : Math.max(0, (next ? next.s : Math.max(endDay, now)) - now);
+  const inWork = !!win && !current;
+  const hasWorkOpen = (STATE.tasks || []).some(t => t.work && _taskOpen(t));
+  const cands = [];
+  (STATE.tasks || []).filter(_taskOpen).forEach(t => {
+    const r = _scoreTask(t, windowMin, !!current);
+    if (inWork) {
+      if (t.work) { r.score += 15; r.why.unshift('do trabalho, no seu expediente'); }
+      else if (hasWorkOpen) r.score -= 10;
+      else r.why.push('sem tarefa do trabalho agora: dá para encaixar');
+    } else if (t.work && W && now < W.blocks[W.blocks.length - 1].e && !current) { r.score -= 4; }
+    else if (t.work) { r.score -= 8; r.why.push('do trabalho, fora do expediente'); }
+    cands.push({ kind: 'task', id: t.id, title: t.title, score: r.score, why: r.why });
+  });
+  (STATE.applications || []).filter(a => !a.outcome && a.nextDate).forEach(a => {
+    const dd = _daysUntil(a.nextDate); if (dd === null || dd < 0 || dd > 3) return;
+    const items = (APP_PREP[a.stage] || []).length, done = Object.values((a.prep || {})[a.stage] || {}).filter(Boolean).length;
+    if (done >= items) return;
+    cands.push({ kind: 'prep', id: a.id, title: `Preparar: ${a.nextStep || 'próxima etapa'} — ${a.company}`, score: 30 + (3 - dd) * 4 - (inWork ? 10 : 0), why: [`etapa ${_whenLabel(a.nextDate)}`, `checklist ${done}/${items}`] });
+  });
+  (STATE.books || []).filter(b => b.status === 'lendo').slice(0, 1).forEach(b => {
+    if (!inWork && windowMin !== null && windowMin >= 30) cands.push({ kind: 'book', id: b.id, title: `Ler 30 min de "${b.title}"`, score: 9, why: ['você tem tempo livre', 'mantém o ritmo da meta de leitura'] });
+  });
+  cands.sort((a, b) => b.score - a.score);
+  return { current, next, windowMin, picks: cands.slice(0, 3), total: cands.length, inWork, workEnd: W ? W.blocks[W.blocks.length - 1].e : null };
+};
+const _origWhatNowHTMLV336 = whatNowHTML;
+whatNowHTML = function () {
+  const html = _origWhatNowHTMLV336.apply(this, arguments);
+  const r = whatNow();
+  return r.inWork ? `<div class="text-xs" style="color:var(--accent);margin-bottom:4px">💼 No expediente até ${_minToHM(r.workEnd)}: tarefas do trabalho primeiro.</div>` + html : html;
+};
+
+// ── Agenda: o bloco vira faixa de fundo; reuniões por cima ──
+function gcWorkBand(d) {
+  const W = workDay(d); if (!W) return '';
+  return W.blocks.filter(b => gcVisible(b.ev)).map(b => {
+    const col = gcColor(b.ev), top = b.s / 60 * GC_HP, h = (b.e - b.s) / 60 * GC_HP;
+    const L = W.lunch && W.lunch.s < b.e && W.lunch.e > b.s ? { s: Math.max(W.lunch.s, b.s), e: Math.min(W.lunch.e, b.e) } : null;
+    const lunch = L ? `<div class="gc-wlunch" style="top:${(L.s - b.s) / 60 * GC_HP}px;height:${(L.e - L.s) / 60 * GC_HP}px"><span>almoço</span></div>` : '';
+    return `<div class="gc-wband" style="top:${top}px;height:${h}px;--wc:${col}">${lunch}<div class="gc-wband-head" onpointerdown="event.stopPropagation()" onclick="gcWorkPop(event,'${b.ev.id}','${d}')" title="Expediente: toque para ver o dia">💼 ${_esc(b.ev.title)} · ${_fmtMinShort(W.freeMin)} livres</div></div>`;
+  }).join('');
+}
+function gcWorkPop(ev, id, d) {
+  ev.stopPropagation();
+  const W = workDay(d); const b = W && W.blocks.find(x => x.ev.id === id); if (!b) return;
+  const lc = (W.lunch ? { start: _minToHM(W.lunch.s), end: _minToHM(W.lunch.e) } : null);
+  const row = (ic, html) => `<div class="gc-pop-row"><span class="gc-ic">${ic}</span><div style="min-width:0;flex:1">${html}</div></div>`;
+  gcPop(ev.currentTarget.getBoundingClientRect(), `
+    <div class="gc-pop-tools">
+      <button title="Editar o bloco" onclick="gcClosePop();editEvent('${id}','${d}')">✏️</button>
+      <button title="Fechar (Esc)" onclick="gcClosePop()">✕</button>
+    </div>
+    <div class="gc-pop-row"><span class="gc-sq" style="background:${gcColor(b.ev)}"></span><div style="min-width:0;flex:1"><div class="gc-pop-title">💼 ${_esc(b.ev.title)}</div><div class="gc-pop-sub">${gcDateLabel(d)} · ${_minToHM(b.s)} – ${_minToHM(b.e)}</div></div></div>
+    ${row('⏳', `Expediente <strong>${_fmtMinShort(W.workMin)}</strong> · reuniões ${_fmtMinShort(W.meetingMin)} · foco ${_fmtMinShort(W.focusMin)}${W.personalMin ? ` · pessoal ${_fmtMinShort(W.personalMin)}` : ''} · <strong>livre ${_fmtMinShort(W.freeMin)}</strong>`)}
+    ${row('🍽', lc ? `Almoço ${lc.start}–${lc.end}` : 'Sem almoço neste dia')}
+    <div class="gc-qc-actions"><button class="btn btn-ghost btn-sm" onclick="gcClosePop();_wdDate='${d}';navigate('workday')">Abrir o expediente</button></div>`);
+}
+
+// ── Formulários: marca "do trabalho" e "bloco de expediente" ──
+let _preWork = false;
+const _origOpenTaskModalV336 = openTaskModal;
+openTaskModal = function (editId) {
+  _origOpenTaskModalV336.apply(this, arguments);
+  if (!editId) { const c = document.getElementById('task-work'); if (c) c.checked = !!_preWork; }
+  _preWork = false;
+};
+const _origEditTaskV336 = editTask;
+editTask = function (id) { _origEditTaskV336.apply(this, arguments); const t = (STATE.tasks || []).find(x => x.id === id); const c = document.getElementById('task-work'); if (c && t) c.checked = !!t.work; };
+const _origQuickAddEventDayV336 = quickAddEventDay;
+quickAddEventDay = function () { _origQuickAddEventDayV336.apply(this, arguments); const a = document.getElementById('event-work'), b = document.getElementById('event-workblock'); if (a) a.checked = false; if (b) b.checked = false; };
+const _origEditEventV336 = editEvent;
+editEvent = function (id) { _origEditEventV336.apply(this, arguments); const e = (STATE.events || []).find(x => x.id === id); const a = document.getElementById('event-work'), b = document.getElementById('event-workblock'); if (e && a) a.checked = !!e.work; if (e && b) b.checked = !!e.workBlock; };
+function _inWorkWindow(d, s, e) { const W = workDay(d); return !!(W && _ovl(s, e, W.wins) > 0); }
+
+// ── Tarefas: marca 💼 ──
+const _origRenderTasksV336 = renderTasks;
+renderTasks = function () {
+  _origRenderTasksV336();
+  (STATE.tasks || []).filter(t => t.work).forEach(t => {
+    const meta = document.querySelector(`#task-${t.id} .item-meta`);
+    if (meta && !meta.querySelector('.work-tag')) meta.insertAdjacentHTML('afterbegin', `<span class="work-tag" title="Tarefa do trabalho">💼 trabalho</span>`);
+  });
+};
+
+// ── Página "Meu expediente" ──
+let _wdDate = null;
+function wdShift(n) { _wdDate = _dateAdd(_wdDate || todayStr(), n); renderWorkday(); }
+function wdSetLunch(d, which, val) {
+  STATE.settings.workLunchByDate = STATE.settings.workLunchByDate || {};
+  const cur = workLunchFor(d);
+  const base = cur ? { start: _minToHM(cur.s), end: _minToHM(cur.e) } : { ..._workLunchCfg() };
+  if (which === 'none') STATE.settings.workLunchByDate[d] = null;
+  else if (which === 'reset') delete STATE.settings.workLunchByDate[d];
+  else if (which === 'default') { STATE.settings.workLunch = base; delete STATE.settings.workLunchByDate[d]; toast('Almoço padrão atualizado'); }
+  else { base[which] = val; if (base.end <= base.start) { toast('O almoço precisa terminar depois de começar', true); renderWorkday(); return; } STATE.settings.workLunchByDate[d] = base; }
+  save(); renderWorkday();
+}
+function wdMarkBlock(id) { const e = (STATE.events || []).find(x => x.id === id); if (!e) return; e.workBlock = true; e.updatedAt = Date.now(); save(); toast('💼 Marcado como expediente'); renderWorkday(); }
+function _dayTimerLogs(d) {
+  const s0 = new Date(d + 'T00:00:00').getTime(), s1 = s0 + 86400000, out = [];
+  (STATE.tasks || []).forEach(t => (t.timeLogs || []).forEach(l => { const s = Math.max(l.s, s0), e = Math.min(l.e, s1); if (e > s) out.push({ t, s: (s - s0) / 60000, e: (e - s0) / 60000 }); }));
+  const a = _activeTimer();
+  if (a) { const t = (STATE.tasks || []).find(x => x.id === a.taskId); const s = Math.max(a.start, s0), e = Math.min(Date.now(), s1); if (t && e > s) out.push({ t, s: (s - s0) / 60000, e: (e - s0) / 60000, live: true }); }
+  return out.sort((x, y) => x.s - y.s);
+}
+function openWorkMeeting(d) {
+  const W = workDay(d); const g = W ? workGaps(d, d === todayStr() ? _nowMin() : null) : [];
+  const s = g.length ? g[0].s : (W ? W.wins[0].s : 9 * 60);
+  _ensureModal('modal-wmeet', '💼 Nova reunião do trabalho', 420);
+  document.getElementById('modal-wmeet-body').innerHTML = `
+    <div class="form-group"><label class="form-label">Título</label><input id="wm-title" class="form-input" placeholder="Ex.: 1:1 com gestor" onkeydown="if(event.key==='Enter')saveWorkMeeting('${d}')"></div>
+    <div class="form-row"><div class="form-group"><label class="form-label">Início</label><input id="wm-s" type="time" step="900" class="form-input" value="${_minToHM(s)}"></div>
+    <div class="form-group"><label class="form-label">Fim</label><input id="wm-e" type="time" step="900" class="form-input" value="${_minToHM(Math.min(s + 60, 1439))}"></div></div>
+    <div class="text-xs text-muted">Use títulos genéricos: nada de dados de consumidores ou informações confidenciais.</div>`;
+  document.getElementById('modal-wmeet-footer').innerHTML = `<button class="btn btn-ghost" onclick="closeModal('modal-wmeet')">Cancelar</button><button class="btn btn-primary" onclick="saveWorkMeeting('${d}')">Salvar</button>`;
+  openModal('modal-wmeet');
+  setTimeout(() => { const t = document.getElementById('wm-title'); if (t) t.focus(); }, 30);
+}
+function saveWorkMeeting(d) {
+  const title = (document.getElementById('wm-title').value || '').trim();
+  if (!title) { toast('Digite um título', true); return; }
+  const s = document.getElementById('wm-s').value, e = document.getElementById('wm-e').value;
+  if (!s || !e || e <= s) { toast('O fim precisa ser depois do início', true); return; }
+  const W = workDay(d); const blk = W && W.blocks[0].ev;
+  STATE.events.push({ id: uid(), title, start: `${d}T${s}`, end: `${d}T${e}`, location: '', notes: '', recurrence: 'none', recurDays: [], recurUntil: '', travelBefore: 0, travelAfter: 0, goalId: '', estimatedCost: 0, dim: blk ? blk.dim || '' : '', sub: blk ? blk.sub || '' : '', attachments: [], work: true, created: Date.now(), updatedAt: Date.now() });
+  save(); closeModal('modal-wmeet'); toast('💼 Reunião adicionada'); renderWorkday();
+}
+function wdNewTask() { _preWork = true; const W = workDay(_wdDate || todayStr()); const blk = W && W.blocks[0].ev; openTaskModal(null, blk ? blk.dim : undefined, blk ? blk.sub : undefined); document.getElementById('task-due').value = _wdDate || todayStr(); }
+function renderWorkday() {
+  const c = document.getElementById('page-workday'); if (!c) return;
+  const today = todayStr(), d = _wdDate || today, W = workDay(d);
+  const dt = new Date(d + 'T12:00:00');
+  const label = d === today ? 'Hoje' : d === _dateAdd(today, 1) ? 'Amanhã' : d === _dateAdd(today, -1) ? 'Ontem' : '';
+  const head = `<div class="section-header" style="flex-wrap:wrap;gap:8px">
+      <div class="section-title">Meu expediente</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="wdShift(-1)">‹</button>
+        <button class="btn btn-ghost btn-sm" onclick="_wdDate=null;renderWorkday()">Hoje</button>
+        <button class="btn btn-ghost btn-sm" onclick="wdShift(1)">›</button>
+        <strong style="margin-left:4px">${label ? label + ', ' : ''}${_WD[dt.getDay()]} ${dt.getDate()}/${dt.getMonth() + 1}</strong>
+      </div></div>`;
+  if (!W) {
+    const cands = getEventsForDate(d).filter(e => !gcIsMultiDay(e) && !e.taskId).map(e => ({ e, m: _evMin(e, d) })).filter(x => x.m && x.m.e - x.m.s >= 240);
+    c.innerHTML = head + `<div class="card"><div class="font-semibold mb-2">Sem expediente neste dia</div>
+      <div class="text-sm text-muted">Para o app organizar o seu dia de trabalho, abra o compromisso do trabalho na Agenda e marque <strong>"Este é o meu bloco de expediente"</strong>.</div>
+      ${cands.length ? `<div class="mt-3">${cands.map(x => `<div class="item-row"><div class="item-content"><div class="item-title">${_esc(x.e.title)}</div><div class="text-xs text-muted">${_minToHM(x.m.s)}–${_minToHM(x.m.e)}</div></div><button class="btn btn-primary btn-sm" onclick="wdMarkBlock('${x.e.id}')">💼 É o meu expediente</button></div>`).join('')}</div>` : ''}</div>`;
+    return;
+  }
+  const plan = _planForDate(d);
+  const planned = plan ? plan.items.filter(i => i.inWork) : [];
+  const plannedMin = planned.reduce((s, i) => s + i.e - i.s, 0);
+  const logs = d <= today ? _dayTimerLogs(d) : [];
+  const workLogMin = logs.filter(l => l.t.work).reduce((s, l) => s + _ovl(l.s, l.e, W.wins), 0);
+  const persInMin = logs.filter(l => !l.t.work).reduce((s, l) => s + _ovl(l.s, l.e, W.wins), 0);
+  const outMin = logs.filter(l => l.t.work).reduce((s, l) => s + (l.e - l.s) - _ovl(l.s, l.e, W.wins), 0) + W.meetingsOutMin;
+  const s0 = new Date(d + 'T00:00:00').getTime();
+  const doneWork = (STATE.tasks || []).filter(t => t.work && t.status === 'done' && t.completedAt >= s0 && t.completedAt < s0 + 86400000);
+  const tile = (v, l, sub) => `<div class="wd-tile"><div class="stat-value" style="font-size:1.4rem">${v}</div><div class="text-xs text-muted">${l}</div>${sub ? `<div class="text-xs" style="color:var(--text2)">${sub}</div>` : ''}</div>`;
+  const freeAfter = Math.max(0, W.freeMin - plannedMin);
+  const lc = W.lunch ? { start: _minToHM(W.lunch.s), end: _minToHM(W.lunch.e) } : null;
+  const lunchByDay = (STATE.settings.workLunchByDate || {});
+  // linha do tempo
+  const nowMin = d === today ? _nowMin() : null;
+  const rows = [];
+  W.blocks.forEach(b => { rows.push({ s: b.s, k: 'edge', html: `<span class="wd-t">${_minToHM(b.s)}</span><span>Início · ${_esc(b.ev.title)}</span>` }); rows.push({ s: b.e, k: 'edge', z: -1, html: `<span class="wd-t">${_minToHM(b.e)}</span><span>Fim do expediente</span>` }); });
+  if (W.lunch) rows.push({ s: W.lunch.s, k: 'lunch', html: `<span class="wd-t">${_minToHM(W.lunch.s)}</span><span>🍽 Almoço até ${_minToHM(W.lunch.e)}</span>` });
+  W.others.forEach(o => {
+    const t = o.ev.taskId && (STATE.tasks || []).find(x => x.id === o.ev.taskId);
+    const kind = o.ev.taskId ? 'focus' : o.ev.work ? 'meet' : 'pers';
+    const tag = kind === 'meet' ? '💼 reunião' : kind === 'focus' ? '⚡ foco' : 'pessoal';
+    const tb = t && _taskOpen(t) ? `<button class="btn-icon timer-btn${_activeTimer() && _activeTimer().taskId === t.id ? ' on' : ''}" onclick="event.stopPropagation();timerToggle('${t.id}');renderWorkday()" title="Cronometrar">${_activeTimer() && _activeTimer().taskId === t.id ? '■' : '▶'}</button>` : '';
+    rows.push({ s: o.s, k: kind, html: `<span class="wd-t">${_minToHM(o.s)}</span><span style="flex:1;cursor:pointer" onclick="editEvent('${o.ev.id}','${d}')">${_esc(o.ev.title)} <span class="text-xs text-muted">· ${tag} · até ${_minToHM(o.e)}</span></span>${tb}` });
+  });
+  planned.forEach(i => {
+    const run = _activeTimer() && _activeTimer().taskId === i.task.id;
+    rows.push({ s: i.s, k: i.task.work ? 'task' : 'fill', html: `<span class="wd-t">${_minToHM(i.s)}</span><span style="flex:1;cursor:pointer" onclick="editTask('${i.task.id}')">${i.task.work ? '' : '<span class="text-xs" style="color:var(--text3)">encaixe · </span>'}${_esc(i.task.title)} <span class="text-xs text-muted">· até ${_minToHM(i.e)}${i.part ? ' · parte ' + i.part : ''}${i.late ? ' · depois do prazo' : ''}</span></span>
+      <button class="btn-icon timer-btn${run ? ' on' : ''}" onclick="timerToggle('${i.task.id}');renderWorkday()" title="Cronometrar">${run ? '■' : '▶'}</button>
+      <button class="btn-icon" title="Fixar na agenda" onclick="_planEvent('${i.task.id}','${d}',${i.s},${i.e});save();renderWorkday()">📅</button>
+      <button class="btn-icon" title="Concluir" onclick="toggleTask('${i.task.id}');renderWorkday()">✓</button>` });
+  });
+  rows.sort((a, b) => a.s - b.s || (a.z || 0) - (b.z || 0));
+  let nowPut = nowMin == null;
+  const tl = rows.map(r => { let pre = ''; if (!nowPut && r.s > nowMin) { nowPut = true; pre = `<div class="wd-now">agora · ${_minToHM(nowMin)}</div>`; } return pre + `<div class="wd-row wd-${r.k}">${r.html}</div>`; }).join('') + (nowPut ? '' : `<div class="wd-now">agora · ${_minToHM(nowMin)}</div>`);
+  const openWork = (STATE.tasks || []).filter(t => t.work && _taskOpen(t) && !planned.some(i => i.task.id === t.id) && !W.focus.some(f => f.ev.taskId === t.id));
+  const unpl = plan ? planWeek(Math.round((new Date(_dateAdd(d, -((dt.getDay() + 6) % 7)) + 'T12:00:00') - new Date(_dateAdd(today, -((new Date(today + 'T12:00:00').getDay() + 6) % 7)) + 'T12:00:00')) / (7 * 86400000))).unplaced.filter(u => u.work) : [];
+  c.innerHTML = head + `
+    <div class="wd-tiles">
+      ${tile(_fmtMinShort(W.workMin), 'expediente', lc ? `almoço ${lc.start}–${lc.end}` : 'sem almoço')}
+      ${tile(_fmtMinShort(W.meetingMin), 'reuniões', `${W.meetings.length} no dia`)}
+      ${tile(_fmtMinShort(W.focusMin + plannedMin), 'tarefas planejadas', W.personalMin ? `+ ${_fmtMinShort(W.personalMin)} pessoal` : '')}
+      ${tile(_fmtMinShort(freeAfter), 'livre', W.workMin ? `${Math.round(freeAfter / W.workMin * 100)}% do dia` : '')}
+      ${d <= today ? tile(_fmtMinShort(workLogMin), 'cronometrado no trabalho', `${doneWork.length} tarefa(s) concluída(s)${outMin >= 1 ? ` · ${_fmtMinShort(outMin)} fora do horário` : ''}`) : ''}
+    </div>
+    <div class="wd-bar">${(() => { const tot = W.workMin || 1; const seg = (m, cl, t) => m > 0 ? `<span class="${cl}" style="width:${m / tot * 100}%" title="${t}: ${_fmtMinShort(m)}"></span>` : ''; return seg(W.meetingMin, 'b-meet', 'Reuniões') + seg(W.focusMin + plannedMin, 'b-task', 'Tarefas') + seg(W.personalMin, 'b-pers', 'Pessoal') + seg(freeAfter, 'b-free', 'Livre'); })()}</div>
+    <div class="wd-legend text-xs"><span><i class="b-meet"></i>reuniões</span><span><i class="b-task"></i>tarefas</span>${W.personalMin ? '<span><i class="b-pers"></i>pessoal</span>' : ''}<span><i class="b-free"></i>livre</span></div>
+    <div class="wd-cols">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap" class="mb-2">
+          <div class="font-semibold">Linha do tempo</div>
+          <div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="openWorkMeeting('${d}')">+ Reunião</button><button class="btn btn-primary btn-sm" onclick="wdNewTask()">+ Tarefa do trabalho</button></div>
+        </div>
+        ${tl}
+        ${plan ? `<div class="text-xs text-muted mt-2">As tarefas vêm do Planejador: primeiro as do trabalho (prazo e prioridade), depois as pessoais como encaixe no tempo que sobra. 📅 fixa na agenda.</div>` : d < today ? '' : ''}
+        ${unpl.length ? `<div class="text-sm mt-2" style="color:var(--danger)">Não cabe(m) no expediente desta semana: ${unpl.map(u => `"${_esc(u.task.title)}" (faltam ${_fmtDur(u.missing)})`).join(', ')}.</div>` : ''}
+        <div class="wd-lunch text-xs mt-3">🍽 Almoço neste dia:
+          ${lc ? `<input type="time" value="${lc.start}" onchange="wdSetLunch('${d}','start',this.value)"> – <input type="time" value="${lc.end}" onchange="wdSetLunch('${d}','end',this.value)">
+          <button class="btn btn-ghost btn-sm" onclick="wdSetLunch('${d}','none')">sem almoço hoje</button>` : `<span>sem almoço</span>`}
+          ${Object.prototype.hasOwnProperty.call(lunchByDay, d) ? `<button class="btn btn-ghost btn-sm" onclick="wdSetLunch('${d}','reset')">voltar ao padrão</button>${lc ? `<button class="btn btn-ghost btn-sm" onclick="wdSetLunch('${d}','default')">usar como padrão</button>` : ''}` : ''}
+        </div>
+      </div>
+      <div class="card">
+        <div class="font-semibold mb-2">Tarefas do trabalho em aberto</div>
+        ${openWork.length ? openWork.map(t => { const run = _activeTimer() && _activeTimer().taskId === t.id; return `<div class="item-row"><div class="item-content" style="cursor:pointer" onclick="editTask('${t.id}')"><div class="item-title" style="font-size:.88rem">${_esc(t.title)}</div><div class="text-xs text-muted">${t.due ? _whenLabel(t.due) : 'sem prazo'}${Number(t.effort) ? ' · ' + _fmtMinShort(Number(t.effort) * 60) : ' · sem estimativa'}</div></div><button class="btn-icon timer-btn${run ? ' on' : ''}" onclick="timerToggle('${t.id}');renderWorkday()">${run ? '■' : '▶'}</button></div>`; }).join('') : `<div class="text-sm text-muted">${planned.some(i => i.task.work) ? 'As demais já estão na linha do tempo.' : 'Nenhuma tarefa marcada como do trabalho. Use "+ Tarefa do trabalho" ou marque 💼 numa tarefa.'}</div>`}
+        ${logs.length ? `<div class="font-semibold mt-4 mb-1">Cronometrado ${d === today ? 'hoje' : 'neste dia'}</div>${logs.map(l => `<div class="task-time-log"><span>${_minToHM(Math.round(l.s))}–${l.live ? 'agora' : _minToHM(Math.round(l.e))} ${l.t.work ? '💼' : ''} ${_esc(l.t.title)}</span><span>${_fmtMinShort(l.e - l.s)}</span></div>`).join('')}${persInMin >= 1 ? `<div class="text-xs text-muted mt-1">${_fmtMinShort(persInMin)} de tarefas pessoais dentro do expediente.</div>` : ''}` : ''}
+      </div>
+    </div>`;
+}
+
+// ── Inteligência: relatório do expediente (semana atual × anterior) ──
+function workWeekStats(mon) {
+  const today = todayStr(), now = _nowMin();
+  const r = { workMin: 0, meetingMin: 0, workLog: 0, persLog: 0, persEv: 0, out: 0, days: 0, done: 0, rush: 0 };
+  for (let i = 0; i < 7; i++) {
+    const d = _dateAdd(mon, i); if (d > today) break;
+    const W = workDay(d); const cut = d === today ? now : 1440;
+    if (W) {
+      const wins = _subtract(W.wins, [{ s: cut, e: 1440 }]);
+      const span = wins.reduce((t, w) => t + w.e - w.s, 0); if (!span) continue;
+      r.days++; r.workMin += span;
+      const minIn = (list) => _mergeBusy(list.map(x => ({ s: x.s, e: Math.min(x.e, cut) })).filter(x => x.e > x.s).sort((a, b) => a.s - b.s)).reduce((t, x) => t + _ovl(x.s, x.e, wins), 0);
+      r.meetingMin += minIn(W.meetings);
+      r.persEv += Math.max(0, minIn(W.others.filter(o => !o.ev.taskId)) - minIn(W.meetings));
+      const logs = _dayTimerLogs(d);
+      r.workLog += logs.filter(l => l.t.work).reduce((t, l) => t + _ovl(l.s, l.e, wins), 0);
+      r.persLog += logs.filter(l => !l.t.work).reduce((t, l) => t + _ovl(l.s, l.e, wins), 0);
+      r.out += logs.filter(l => l.t.work).reduce((t, l) => t + (l.e - l.s) - _ovl(l.s, l.e, W.wins), 0) + W.meetings.filter(m => m.s < cut).reduce((t, x) => t + Math.max(0, (x.e - x.s) - _ovl(x.s, x.e, W.wins)), 0);
+    } else {
+      r.out += _dayTimerLogs(d).filter(l => l.t.work).reduce((t, l) => t + l.e - l.s, 0);
+    }
+  }
+  const s0 = new Date(mon + 'T00:00:00').getTime(), s1 = s0 + 7 * 86400000;
+  (STATE.tasks || []).filter(t => t.work).forEach(t => {
+    if (t.status === 'done' && t.completedAt >= s0 && t.completedAt < s1) r.done++;
+    if (t.created >= s0 && t.created < s1 && t.due && t.due <= _localDateStr(new Date(t.created + 86400000))) r.rush++;
+  });
+  r.none = Math.max(0, r.workMin - r.meetingMin - r.workLog - r.persLog - r.persEv);
+  return r;
+}
+function workEstimateFactor() {
+  const done = (STATE.tasks || []).filter(t => t.work && t.status === 'done' && Number(t.effort) > 0 && taskSpentMin(t, false) >= 5).slice(-20);
+  if (done.length < 3) return { n: done.length, ready: false };
+  const ratios = done.map(t => taskSpentMin(t, false) / (Number(t.effort) * 60)).sort((a, b) => a - b);
+  const m = Math.floor(ratios.length / 2);
+  return { n: done.length, ready: true, factor: ratios.length % 2 ? ratios[m] : (ratios[m - 1] + ratios[m]) / 2 };
+}
+const _origRenderInsightsV336 = renderInsights;
+renderInsights = function () {
+  _origRenderInsightsV336();
+  const c = document.getElementById('page-insights'); if (!c) return;
+  const today = todayStr(), t0 = new Date(today + 'T12:00:00'), mon = _dateAdd(today, -((t0.getDay() + 6) % 7));
+  const A = workWeekStats(mon), B = workWeekStats(_dateAdd(mon, -7));
+  if (!A.days && !B.days) return;
+  const f = workEstimateFactor();
+  const bar = (r) => { const tot = r.workMin || 1; const seg = (m, cl, t) => m > 0 ? `<span class="${cl}" style="width:${m / tot * 100}%" title="${t}: ${_fmtMinShort(m)}"></span>` : ''; return `<div class="wd-bar">${seg(r.meetingMin, 'b-meet', 'Reuniões')}${seg(r.workLog, 'b-task', 'Tarefas do trabalho (cronômetro)')}${seg(r.persLog + r.persEv, 'b-pers', 'Pessoal')}${seg(r.none, 'b-free', 'Sem registro')}</div>`; };
+  const line = (lbl, r) => r.days ? `<div class="mt-2"><div class="text-sm"><strong>${lbl}</strong> · ${_fmtMinShort(r.workMin)} de expediente${lbl === 'Esta semana' ? ' até agora' : ''}: reuniões ${_fmtMinShort(r.meetingMin)} (${Math.round(r.meetingMin / (r.workMin || 1) * 100)}%) · tarefas do trabalho ${_fmtMinShort(r.workLog)} · pessoal ${_fmtMinShort(r.persLog + r.persEv)} · sem registro ${_fmtMinShort(r.none)}</div>${bar(r)}
+      <div class="text-xs text-muted">${r.done} tarefa(s) do trabalho concluída(s)${r.rush ? ` · ${r.rush} chegaram com prazo de até 1 dia` : ''}${r.out >= 1 ? ` · <span style="color:var(--accent-amber)">${_fmtMinShort(r.out)} de trabalho fora do horário</span>` : ''}</div></div>` : '';
+  c.insertAdjacentHTML('beforeend', `<div class="card mb-4">
+    <div class="font-semibold mb-1">💼 Expediente</div>
+    <div class="wd-legend text-xs"><span><i class="b-meet"></i>reuniões</span><span><i class="b-task"></i>tarefas do trabalho</span><span><i class="b-pers"></i>pessoal</span><span><i class="b-free"></i>sem registro</span></div>
+    ${line('Esta semana', A)}${line('Semana passada', B)}
+    <div class="text-sm mt-3">${f.ready ? `Nas tarefas do trabalho você leva <strong>${(Math.round(f.factor * 10) / 10).toLocaleString('pt-BR')}x</strong> o tempo que estima (${f.n} tarefas).` : `Estimativa × real no trabalho: conclua ${3 - f.n} tarefa(s) do trabalho com estimativa e cronômetro para medir (${f.n}/3).`}</div>
+    <div class="text-xs text-muted mt-1">"Sem registro" = tempo do expediente sem reunião nem cronômetro ligado. Quanto mais você cronometra, mais real fica o retrato.</div>
+  </div>`);
+};
+
+// ── Blocos "Trabalho…/Expediente…" de 4h+ viram expediente (só os que nunca foram marcados/desmarcados) ──
+function _workBlockAutoMark() {
+  try {
+    let n = 0;
+    (STATE.events || []).forEach(e => {
+      if (e.workBlock !== undefined || e.taskId || e.work || !e.start || e.start.length <= 10 || !e.end) return;
+      if (e.end.slice(0, 10) !== e.start.slice(0, 10)) return;
+      if (!/(^|[^a-zà-ú])(trabalho|expediente)([^a-zà-ú]|$)/i.test(e.title || '')) return;
+      if (_hmToMin(e.end.slice(11, 16)) - _hmToMin(e.start.slice(11, 16)) < 240) return;
+      e.workBlock = true; e.updatedAt = Date.now(); n++;
+    });
+    if (n) {
+      save();
+      if (!STATE.settings.workBlocksToast) { STATE.settings.workBlocksToast = true; save(); toast(`💼 ${n} bloco(s) de trabalho da Agenda viraram expediente`); }
+      if (currentPage === 'agenda' && !document.getElementById('gc-pop')) renderAgenda(); else if (currentPage === 'workday') renderWorkday();
+    }
+  } catch (err) { console.warn('expediente', err); }
+}
+setTimeout(_workBlockAutoMark, 1500);
+setInterval(_workBlockAutoMark, 10000);
 
 </script>
 <script>
