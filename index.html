@@ -2752,7 +2752,7 @@ function driveSignOut() {
 
 function refreshDriveSettingsUI() {
   const vl = document.getElementById('app-version-line');
-  if (vl) vl.textContent = 'Personal OS v' + APP_VERSION;
+  if (vl) { vl.textContent = 'Personal OS v' + APP_VERSION; if (!document.getElementById('btn-check-update')) vl.insertAdjacentHTML('afterend', ' <button id="btn-check-update" class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="checkForUpdate()">Procurar atualização</button>'); }
   const connected = driveIsConnected();
   const disc = document.getElementById('drive-disconnected-view');
   const conn = document.getElementById('drive-connected-view');
@@ -7976,7 +7976,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.8';
+const APP_VERSION = '3.39.9';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13541,6 +13541,36 @@ function autoReserve(silent) {
         }
       }
     }
+    // 1d) v3.39.9 — reorganizar: se abriu um horário mais cedo (ex.: sobra do expediente), as reservas automáticas
+    //     que você não mexeu vão para lá. Reserva que você moveu/redimensionou fica onde está.
+    try {
+      const soon = now + 10 * 60000;
+      (STATE.events || []).forEach(e => { if (e.autoReserved && !e.autoStart) { e.autoStart = e.start; e.autoEnd = e.end; } }); // reservas antigas
+      const movable = (STATE.events || []).filter(e => e.autoReserved && e.taskId && new Date(e.start).getTime() > soon && e.start === e.autoStart && e.end === e.autoEnd);
+      if (movable.length) {
+        const ids = new Set(movable.map(e => e.id));
+        const before = STATE.events;
+        STATE.events = before.filter(e => !ids.has(e.id));
+        const firstOld = {}; movable.forEach(e => { if (!firstOld[e.taskId] || e.start < firstOld[e.taskId]) firstOld[e.taskId] = e.start; });
+        const firstNew = {}; let worse = false;
+        [planWeek(0), planWeek(1)].forEach(P => P.days.forEach(d => d.items.forEach(i => {
+          if (!(i.task.id in firstOld) || i.late) return;
+          const st = `${d.d}T${_minToHM(i.s)}`;
+          if (!firstNew[i.task.id] || st < firstNew[i.task.id]) firstNew[i.task.id] = st;
+        })));
+        let gain = false;
+        Object.keys(firstOld).forEach(tid => {
+          if (!firstNew[tid]) { worse = true; return; }
+          const diff = (new Date(firstOld[tid]) - new Date(firstNew[tid])) / 60000;
+          if (diff >= 30) gain = true; else if (diff < -30) worse = true;
+        });
+        if (gain && !worse) {
+          ids.forEach(id => delete map[id]); changed = true;
+          const names = Object.keys(firstOld).filter(tid => (new Date(firstOld[tid]) - new Date(firstNew[tid])) / 60000 >= 30).map(tid => ((STATE.tasks || []).find(t => t.id === tid) || {}).title).filter(Boolean);
+          if (!silent && names.length) toast(`↻ Adiantei ${names.length === 1 ? `"${names[0]}"` : names.length + ' tarefas'}: abriu um horário livre mais cedo`);
+        } else STATE.events = before; // nada melhorou: mantém como estava
+      }
+    } catch (err) { console.warn('reorganizar reservas', err); }
     // 2) reservar: tarefas com prazo e estimativa, desta semana e da próxima
     let created = 0; const moved = [];
     for (const off of [0, 1]) {
@@ -13553,7 +13583,7 @@ function autoReserve(silent) {
         const hadPast = (STATE.events || []).some(e => e.taskId === t.id && e.autoReserved && new Date(e.end || e.start).getTime() <= now);
         const ev = _planEvent(t.id, day.d, it.s, it.e);
         if (!ev) return;
-        ev.autoReserved = true; ev.notes = 'Reserva automática do Planejador (prazo interno = prazo − margem). Pode mover ou apagar.' + (it.assumed ? ' Sem estimativa na tarefa: reservei 30 min — ajuste o esforço estimado.' : '') + (it.overdue ? ' A tarefa já venceu: reservei o primeiro horário livre.' : '');
+        ev.autoReserved = true; ev.autoStart = ev.start; ev.autoEnd = ev.end; ev.notes = 'Reserva automática do Planejador (prazo interno = prazo − margem). Pode mover ou apagar.' + (it.assumed ? ' Sem estimativa na tarefa: reservei 30 min — ajuste o esforço estimado.' : '') + (it.overdue ? ' A tarefa já venceu: reservei o primeiro horário livre.' : '');
         if (t.work) ev.work = true;
         if (it.inWork && !t.work) ev.workFill = true;
         map[ev.id] = { t: t.id, end: new Date(ev.end).getTime() };
@@ -14032,6 +14062,25 @@ const _origSaveTaskW = saveTask;
 saveTask = function () { const r = _origSaveTaskW.apply(this, arguments); if (_freeWaitingBlocks(false)) { if (currentPage === 'workday') renderWorkday(); else if (currentPage === 'agenda') renderAgenda(); else if (currentPage === 'planner') renderPlanner(); } return r; };
 setTimeout(() => _freeWaitingBlocks(false), 1200);
 setInterval(() => _freeWaitingBlocks(true), 30000);
+
+
+// v3.39.9 — "Procurar atualização": busca a versão publicada e troca na hora (não apaga dados)
+async function checkForUpdate() {
+  const btn = document.getElementById('btn-check-update'); if (btn) { btn.disabled = true; btn.textContent = 'Procurando…'; }
+  try {
+    const r = await fetch('./index.html?v=' + Date.now(), { cache: 'no-store' });
+    const html = await r.text();
+    const m = html.match(/const APP_VERSION = '([0-9.]+)'/);
+    const remote = m ? m[1] : null;
+    if (!remote) throw new Error('sem versão');
+    if (remote === APP_VERSION) { toast(`Você já está na versão mais nova (${APP_VERSION})`); return; }
+    toast(`Atualizando para a ${remote}…`);
+    try { const reg = await navigator.serviceWorker.getRegistration(); if (reg) { await reg.update(); if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } } catch (e) {}
+    try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch (e) {} // só o cache de arquivos do app; os seus dados ficam
+    setTimeout(() => location.reload(), 600);
+  } catch (e) { toast('Não consegui verificar agora (sem internet?)', true); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Procurar atualização'; } }
+}
 
 </script>
 <script>
