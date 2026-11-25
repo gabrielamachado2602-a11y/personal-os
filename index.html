@@ -7976,7 +7976,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.4';
+const APP_VERSION = '3.39.5';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13059,7 +13059,7 @@ whatNow = function () {
   const hasWorkOpen = (STATE.tasks || []).some(t => t.work && _taskOpen(t));
   const cands = [];
   (STATE.tasks || []).filter(_taskOpen).forEach(t => {
-    if (t.status === 'waiting' && (!t.due || t.due > today)) return;
+    if (t.status === 'waiting') return; // aguardando terceiros: não é algo para fazer agora
     const r = _scoreTask(t, windowMin, !!current);
     if (inWork) {
       if (t.work) { r.score += 15; r.why.unshift('do trabalho, no seu expediente'); }
@@ -13416,7 +13416,7 @@ planWeek = function (offset) {
   let taskMin = 0;
   for (const t of ordered) {
     const isWaiting = t.status === 'waiting';
-    if (isWaiting && (!t.due || !days.some(x => x.d === t.due))) { waitingSkipped.push(t); continue; }
+    if (isWaiting) { waitingSkipped.push(t); continue; } // v3.39.5: "Aguardando" não ocupa tempo
     if (t.due && t.due > weekEnd && !days.length) continue;
     const dur = need[t.id];
     const eff = _taskDurH(t);
@@ -13513,7 +13513,7 @@ function autoReserve(silent) {
     (STATE.events || []).forEach(e => { if (e.autoReserved && e.taskId && new Date(e.start).getTime() > now) (byTask[e.taskId] = byTask[e.taskId] || []).push(e); });
     Object.entries(byTask).forEach(([tid, evs]) => {
       const t = (STATE.tasks || []).find(x => x.id === tid);
-      if (!t || !_taskOpen(t)) { changed = _dropAutoEvents(tid) > 0 || changed; return; }
+      if (!t || !_taskOpen(t) || t.status === 'waiting') { changed = _dropAutoEvents(tid) > 0 || changed; return; }
       const bad = evs.filter(e => t.due && e.start.slice(0, 10) > t.due);
       let total = _futureReservedMin(tid);
       const needAll = _taskNeedMin(t);
@@ -13522,6 +13522,14 @@ function autoReserve(silent) {
       for (const e of extra) { if (total - needAll < 15) break; const m = (new Date(e.end) - new Date(e.start)) / 60000; if (total - m < needAll - 5) break; total -= m; drop.add(e.id); }
       if (drop.size) { STATE.events = STATE.events.filter(e => !drop.has(e.id)); drop.forEach(id => delete map[id]); changed = true; }
     });
+    // 1b) tarefa "Aguardando": sai de todos os blocos futuros (reservados ou postos na agenda pelo Planejador)
+    const waitIds = new Set((STATE.tasks || []).filter(t => t.status === 'waiting').map(t => t.id));
+    const freed = (STATE.events || []).filter(e => e.taskId && waitIds.has(e.taskId) && new Date(e.start).getTime() > now);
+    if (freed.length) {
+      const ids = new Set(freed.map(e => e.id));
+      STATE.events = STATE.events.filter(e => !ids.has(e.id)); ids.forEach(id => delete map[id]); changed = true;
+      if (!silent) toast(`⏸ ${freed.length} horário(s) liberado(s): tarefa aguardando não ocupa a agenda`);
+    }
     // 2) reservar: tarefas com prazo e estimativa, desta semana e da próxima
     let created = 0; const moved = [];
     for (const off of [0, 1]) {
@@ -13946,7 +13954,7 @@ function reserveDiagnosis() {
     const fut = _futureReservedMin(t.id), need = _taskNeedMin(t);
     if (fut > 0 && fut >= need - 5) return; // já reservada
     let why;
-    if (t.status === 'waiting') why = t.due === today || t.due > today ? `Aguardando: só ganha horário no dia da entrega (${formatDate(t.due)})` : 'Aguardando e com prazo vencido: atualize o status ou o prazo';
+    if (t.status === 'waiting') why = 'Aguardando: não ocupa tempo na agenda. Quando mudar o status, o app reserva o horário de novo';
     else if (!cfg.auto) why = 'A reserva automática está desligada';
     else if (t.reserveOff) why = 'Você apagou a reserva desta tarefa: toque em ↺ para reservar de novo';
     else if (unpl.has(t.id)) why = 'Não coube: a agenda está cheia até o prazo (libere um horário ou mude o prazo)';
