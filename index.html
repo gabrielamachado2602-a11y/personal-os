@@ -583,7 +583,8 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .wd-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:middle}
 .wd-cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:14px;align-items:start}
 @media (max-width:900px){.wd-cols{grid-template-columns:1fr}}
-.wd-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-left:3px solid var(--border);font-size:.86rem;margin:2px 0;border-radius:0 6px 6px 0}
+.wd-row .btn-icon{padding:2px 5px;flex-shrink:0}
+.wd-row{display:flex;align-items:center;gap:6px;padding:6px 8px;border-left:3px solid var(--border);font-size:.86rem;margin:2px 0;border-radius:0 6px 6px 0}
 .wd-t{font-variant-numeric:tabular-nums;color:var(--text2);font-size:.78rem;width:40px;flex-shrink:0}
 .wd-edge{color:var(--text3);font-size:.78rem;border-left-color:transparent;padding:2px 8px}
 .wd-meet{border-left-color:#5A7080;background:color-mix(in srgb,#5A7080 8%,transparent)}
@@ -7975,7 +7976,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.3';
+const APP_VERSION = '3.39.4';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13225,13 +13226,28 @@ function renderWorkday() {
     const t = o.ev.taskId && (STATE.tasks || []).find(x => x.id === o.ev.taskId);
     const kind = o.ev.taskId ? 'focus' : o.ev.work ? 'meet' : 'pers';
     const tag = kind === 'meet' ? '💼 reunião' : kind === 'focus' ? '⚡ foco' : 'pessoal';
-    const tb = t && _taskOpen(t) ? `<button class="btn-icon timer-btn${_activeTimer() && _activeTimer().taskId === t.id ? ' on' : ''}" onclick="event.stopPropagation();timerToggle('${t.id}');renderWorkday()" title="Cronometrar">${_activeTimer() && _activeTimer().taskId === t.id ? '■' : '▶'}</button>` : '';
-    rows.push({ s: o.s, k: kind, html: `<span class="wd-t">${_minToHM(o.s)}</span><span style="flex:1;cursor:pointer" onclick="editEvent('${o.ev.id}','${d}')">${_esc(o.ev.title)} <span class="text-xs text-muted">· ${tag} · até ${_minToHM(o.e)}</span></span>${tb}` });
+    if (o.ev._habit) { // hábito com horário
+      const hd = _habitDoneOn(o.ev._habit, d);
+      rows.push({ s: o.s, k: 'pers', html: `<span class="wd-t">${_minToHM(o.s)}</span><span style="flex:1;cursor:pointer;${hd ? 'text-decoration:line-through;color:var(--text3)' : ''}" onclick="editHabit('${o.ev._habit}')">🔁 ${_esc(o.ev.title)} <span class="text-xs text-muted">· hábito · até ${_minToHM(o.e)}</span></span><button class="btn-icon" title="${hd ? 'Desmarcar' : 'Feito'}" onclick="toggleHabitDay('${o.ev._habit}','${d}');renderWorkday()">${hd ? '↺' : '✓'}</button>` });
+      return;
+    }
+    if (t) { // bloco de tarefa (reservado ou posto na agenda): editar, cronometrar, concluir, tirar da agenda
+      const open = _taskOpen(t), run = _activeTimer() && _activeTimer().taskId === t.id;
+      const overdueT = open && t.due && t.due < todayStr();
+      rows.push({ s: o.s, k: t.work ? 'task' : 'fill', html: `<span class="wd-t">${_minToHM(o.s)}</span><span style="flex:1;cursor:pointer;${open ? '' : 'text-decoration:line-through;color:var(--text3)'}" onclick="editTask('${t.id}')" title="Abrir a tarefa">${t.work ? '' : '<span class="text-xs" style="color:var(--text3)">pessoal · </span>'}${_esc(t.title)} <span class="text-xs text-muted">· ${o.ev.autoReserved ? '📅 reservado' : '⚡ foco'} · até ${_minToHM(o.e)}${t.due ? ' · prazo ' + formatDate(t.due) : ''}</span>${overdueT ? ' <span class="text-xs" style="color:var(--danger)">atrasada</span>' : ''}</span>
+        ${open ? `<button class="btn-icon timer-btn${run ? ' on' : ''}" onclick="timerToggle('${t.id}');renderWorkday()" title="Cronometrar">${run ? '■' : '▶'}</button>
+        <button class="btn-icon" title="Editar" onclick="editTask('${t.id}')">✎</button>
+        <button class="btn-icon" title="Concluir" onclick="toggleTask('${t.id}');renderWorkday()">✓</button>` : `<button class="btn-icon" title="Reabrir" onclick="toggleTask('${t.id}');renderWorkday()">↺</button>`}
+        <button class="btn-icon" title="Tirar da agenda" onclick="planUnreserve('${o.ev.id}')">✕</button>` });
+      return;
+    }
+    rows.push({ s: o.s, k: kind, html: `<span class="wd-t">${_minToHM(o.s)}</span><span style="flex:1;cursor:pointer" onclick="editEvent('${o.ev.id}','${d}')">${_esc(o.ev.title)} <span class="text-xs text-muted">· ${tag} · até ${_minToHM(o.e)}</span></span>` });
   });
   planned.forEach(i => {
     const run = _activeTimer() && _activeTimer().taskId === i.task.id;
     rows.push({ s: i.s, k: i.task.work ? 'task' : 'fill', html: `<span class="wd-t">${_minToHM(i.s)}</span><span style="flex:1;cursor:pointer" onclick="editTask('${i.task.id}')">${i.task.work ? '' : '<span class="text-xs" style="color:var(--text3)">encaixe · </span>'}${_esc(i.task.title)} <span class="text-xs text-muted">· até ${_minToHM(i.e)}${i.part ? ' · parte ' + i.part : ''}${i.late ? ' · depois do prazo' : ''}</span></span>
       <button class="btn-icon timer-btn${run ? ' on' : ''}" onclick="timerToggle('${i.task.id}');renderWorkday()" title="Cronometrar">${run ? '■' : '▶'}</button>
+      <button class="btn-icon" title="Editar" onclick="editTask('${i.task.id}')">✎</button>
       <button class="btn-icon" title="Fixar na agenda" onclick="_planEvent('${i.task.id}','${d}',${i.s},${i.e});save();renderWorkday()">📅</button>
       <button class="btn-icon" title="Concluir" onclick="toggleTask('${i.task.id}');renderWorkday()">✓</button>` });
   });
@@ -13267,7 +13283,7 @@ function renderWorkday() {
       </div>
       <div class="card">
         <div class="font-semibold mb-2">Tarefas do trabalho em aberto</div>
-        ${openWork.length ? openWork.map(t => { const run = _activeTimer() && _activeTimer().taskId === t.id; return `<div class="item-row"><div class="item-content" style="cursor:pointer" onclick="editTask('${t.id}')"><div class="item-title" style="font-size:.88rem">${_esc(t.title)}</div><div class="text-xs text-muted">${t.due ? _whenLabel(t.due) : 'sem prazo'}${Number(t.effort) ? ' · ' + _fmtMinShort(Number(t.effort) * 60) : ' · sem estimativa'}</div></div><button class="btn-icon timer-btn${run ? ' on' : ''}" onclick="timerToggle('${t.id}');renderWorkday()">${run ? '■' : '▶'}</button></div>`; }).join('') : `<div class="text-sm text-muted">${planned.some(i => i.task.work) ? 'As demais já estão na linha do tempo.' : 'Nenhuma tarefa marcada como do trabalho. Use "+ Tarefa do trabalho" ou marque 💼 numa tarefa.'}</div>`}
+        ${openWork.length ? openWork.map(t => { const run = _activeTimer() && _activeTimer().taskId === t.id; return `<div class="item-row"><div class="item-content" style="cursor:pointer" onclick="editTask('${t.id}')"><div class="item-title" style="font-size:.88rem">${_esc(t.title)}</div><div class="text-xs text-muted">${t.due ? _whenLabel(t.due) : 'sem prazo'}${Number(t.effort) ? ' · ' + _fmtMinShort(Number(t.effort) * 60) : ' · sem estimativa'}</div></div><button class="btn-icon timer-btn${run ? ' on' : ''}" title="Cronometrar" onclick="timerToggle('${t.id}');renderWorkday()">${run ? '■' : '▶'}</button><button class="btn-icon" title="Editar" onclick="editTask('${t.id}')">✎</button><button class="btn-icon" title="Concluir" onclick="toggleTask('${t.id}');renderWorkday()">✓</button></div>`; }).join('') : `<div class="text-sm text-muted">${planned.some(i => i.task.work) ? 'As demais já estão na linha do tempo.' : 'Nenhuma tarefa marcada como do trabalho. Use "+ Tarefa do trabalho" ou marque 💼 numa tarefa.'}</div>`}
         ${logs.length ? `<div class="font-semibold mt-4 mb-1">Cronometrado ${d === today ? 'hoje' : 'neste dia'}</div>${logs.map(l => `<div class="task-time-log"><span>${_minToHM(Math.round(l.s))}–${l.live ? 'agora' : _minToHM(Math.round(l.e))} ${l.t.work ? '💼' : ''} ${_esc(l.t.title)}</span><span>${_fmtMinShort(l.e - l.s)}</span></div>`).join('')}${persInMin >= 1 ? `<div class="text-xs text-muted mt-1">${_fmtMinShort(persInMin)} de tarefas pessoais dentro do expediente.</div>` : ''}` : ''}
       </div>
     </div>`;
@@ -13963,9 +13979,15 @@ function planUnreserve(eventId) {
   STATE.events = STATE.events.filter(e => e.id !== eventId);
   const t = (STATE.tasks || []).find(x => x.id === ev.taskId);
   if (t && ev.autoReserved) { t.reserveOff = true; t.updatedAt = Date.now(); if (STATE.settings.autoReserveIds) delete STATE.settings.autoReserveIds[eventId]; }
-  save(); renderPlanner();
-  gcUndoToast('Reserva tirada da agenda', () => { STATE.events.push(ev); if (t) t.reserveOff = false; save(); renderPlanner(); });
+  const rr = () => { if (currentPage === 'workday') renderWorkday(); else if (currentPage === 'agenda') renderAgenda(); else renderPlanner(); };
+  save(); rr();
+  gcUndoToast('Reserva tirada da agenda', () => { STATE.events.push(ev); if (t) t.reserveOff = false; save(); rr(); });
 }
+
+
+// v3.39.4 — salvar a tarefa com o expediente aberto atualiza a linha do tempo
+const _origSaveTaskWD = saveTask;
+saveTask = function () { const r = _origSaveTaskWD.apply(this, arguments); if (currentPage === 'workday') renderWorkday(); return r; };
 
 </script>
 <script>
