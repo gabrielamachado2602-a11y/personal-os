@@ -7976,7 +7976,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.6';
+const APP_VERSION = '3.39.7';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13525,14 +13525,7 @@ function autoReserve(silent) {
       for (const e of extra) { if (total - needAll < 15) break; const m = (new Date(e.end) - new Date(e.start)) / 60000; if (total - m < needAll - 5) break; total -= m; drop.add(e.id); }
       if (drop.size) { STATE.events = STATE.events.filter(e => !drop.has(e.id)); drop.forEach(id => delete map[id]); changed = true; }
     });
-    // 1b) tarefa "Aguardando": sai de todos os blocos futuros (reservados ou postos na agenda pelo Planejador)
-    const waitIds = new Set((STATE.tasks || []).filter(t => t.status === 'waiting').map(t => t.id));
-    const freed = (STATE.events || []).filter(e => e.taskId && waitIds.has(e.taskId) && new Date(e.end || e.start).getTime() > now); // inclui o bloco que está acontecendo agora
-    if (freed.length) {
-      const ids = new Set(freed.map(e => e.id));
-      STATE.events = STATE.events.filter(e => !ids.has(e.id)); ids.forEach(id => delete map[id]); changed = true;
-      if (!silent) toast(`⏸ ${freed.length} horário(s) liberado(s): tarefa aguardando não ocupa a agenda`);
-    }
+    if (_freeWaitingBlocks(silent)) changed = true;
     // 2) reservar: tarefas com prazo e estimativa, desta semana e da próxima
     let created = 0; const moved = [];
     for (const off of [0, 1]) {
@@ -13999,6 +13992,30 @@ function planUnreserve(eventId) {
 // v3.39.4 — salvar a tarefa com o expediente aberto atualiza a linha do tempo
 const _origSaveTaskWD = saveTask;
 saveTask = function () { const r = _origSaveTaskWD.apply(this, arguments); if (currentPage === 'workday') renderWorkday(); return r; };
+
+
+// v3.39.7 — tarefa "Aguardando" libera os blocos SEMPRE (mesmo com a reserva automática desligada),
+// ao abrir Agenda / Planejador / Meu expediente e a cada salvamento de tarefa
+function _freeWaitingBlocks(silent) {
+  const now = Date.now();
+  const waitIds = new Set((STATE.tasks || []).filter(t => t.status === 'waiting').map(t => t.id));
+  if (!waitIds.size) return 0;
+  const freed = (STATE.events || []).filter(e => e.taskId && waitIds.has(e.taskId) && new Date(e.end || e.start).getTime() > now);
+  if (!freed.length) return 0;
+  const ids = new Set(freed.map(e => e.id)), map = (STATE.settings && STATE.settings.autoReserveIds) || {};
+  STATE.events = STATE.events.filter(e => !ids.has(e.id)); ids.forEach(id => delete map[id]);
+  save();
+  if (!silent) toast(`⏸ ${freed.length} horário(s) liberado(s): tarefa aguardando não ocupa a agenda`);
+  return freed.length;
+}
+['renderWorkday', 'renderPlanner', 'renderAgenda'].forEach(fn => {
+  const orig = window[fn]; if (typeof orig !== 'function') return;
+  window[fn] = function () { _freeWaitingBlocks(false); return orig.apply(this, arguments); };
+});
+const _origSaveTaskW = saveTask;
+saveTask = function () { const r = _origSaveTaskW.apply(this, arguments); if (_freeWaitingBlocks(false)) { if (currentPage === 'workday') renderWorkday(); else if (currentPage === 'agenda') renderAgenda(); else if (currentPage === 'planner') renderPlanner(); } return r; };
+setTimeout(() => _freeWaitingBlocks(false), 1200);
+setInterval(() => _freeWaitingBlocks(true), 30000);
 
 </script>
 <script>
