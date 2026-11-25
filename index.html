@@ -7976,7 +7976,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.5';
+const APP_VERSION = '3.39.6';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13232,6 +13232,7 @@ function renderWorkday() {
       return;
     }
     if (t) { // bloco de tarefa (reservado ou posto na agenda): editar, cronometrar, concluir, tirar da agenda
+      if (t.status === 'waiting') { rows.push({ s: o.s, k: 'pers', html: `<span class="wd-t">${_minToHM(o.s)}</span><span style="flex:1;cursor:pointer;color:var(--text3)" onclick="editTask('${t.id}')">⏸ ${_esc(t.title)} <span class="text-xs">· aguardando</span></span>` }); return; }
       const open = _taskOpen(t), run = _activeTimer() && _activeTimer().taskId === t.id;
       const overdueT = open && t.due && t.due < todayStr();
       rows.push({ s: o.s, k: t.work ? 'task' : 'fill', html: `<span class="wd-t">${_minToHM(o.s)}</span><span style="flex:1;cursor:pointer;${open ? '' : 'text-decoration:line-through;color:var(--text3)'}" onclick="editTask('${t.id}')" title="Abrir a tarefa">${t.work ? '' : '<span class="text-xs" style="color:var(--text3)">pessoal · </span>'}${_esc(t.title)} <span class="text-xs text-muted">· ${o.ev.autoReserved ? '📅 reservado' : '⚡ foco'} · até ${_minToHM(o.e)}${t.due ? ' · prazo ' + formatDate(t.due) : ''}</span>${overdueT ? ' <span class="text-xs" style="color:var(--danger)">atrasada</span>' : ''}</span>
@@ -13254,7 +13255,8 @@ function renderWorkday() {
   rows.sort((a, b) => a.s - b.s || (a.z || 0) - (b.z || 0));
   let nowPut = nowMin == null;
   const tl = rows.map(r => { let pre = ''; if (!nowPut && r.s > nowMin) { nowPut = true; pre = `<div class="wd-now">agora · ${_minToHM(nowMin)}</div>`; } return pre + `<div class="wd-row wd-${r.k}">${r.html}</div>`; }).join('') + (nowPut ? '' : `<div class="wd-now">agora · ${_minToHM(nowMin)}</div>`);
-  const openWork = (STATE.tasks || []).filter(t => t.work && _taskOpen(t) && !planned.some(i => i.task.id === t.id) && !W.focus.some(f => f.ev.taskId === t.id));
+  const openWork = (STATE.tasks || []).filter(t => t.work && _taskOpen(t) && t.status !== 'waiting' && !planned.some(i => i.task.id === t.id) && !W.focus.some(f => f.ev.taskId === t.id));
+  const waitingWork = (STATE.tasks || []).filter(t => t.work && t.status === 'waiting');
   const unpl = plan ? planWeek(Math.round((new Date(_dateAdd(d, -((dt.getDay() + 6) % 7)) + 'T12:00:00') - new Date(_dateAdd(today, -((new Date(today + 'T12:00:00').getDay() + 6) % 7)) + 'T12:00:00')) / (7 * 86400000))).unplaced.filter(u => u.work) : [];
   c.innerHTML = head + `
     <div class="wd-tiles">
@@ -13283,6 +13285,7 @@ function renderWorkday() {
       </div>
       <div class="card">
         <div class="font-semibold mb-2">Tarefas do trabalho em aberto</div>
+        ${waitingWork.length ? `<div class="text-xs text-muted mb-2">⏸ Aguardando (fora do tempo do dia): ${waitingWork.map(t => `<a href="#" onclick="event.preventDefault();editTask('${t.id}')">${_esc(t.title)}</a>`).join(', ')}</div>` : ''}
         ${openWork.length ? openWork.map(t => { const run = _activeTimer() && _activeTimer().taskId === t.id; return `<div class="item-row"><div class="item-content" style="cursor:pointer" onclick="editTask('${t.id}')"><div class="item-title" style="font-size:.88rem">${_esc(t.title)}</div><div class="text-xs text-muted">${t.due ? _whenLabel(t.due) : 'sem prazo'}${Number(t.effort) ? ' · ' + _fmtMinShort(Number(t.effort) * 60) : ' · sem estimativa'}</div></div><button class="btn-icon timer-btn${run ? ' on' : ''}" title="Cronometrar" onclick="timerToggle('${t.id}');renderWorkday()">${run ? '■' : '▶'}</button><button class="btn-icon" title="Editar" onclick="editTask('${t.id}')">✎</button><button class="btn-icon" title="Concluir" onclick="toggleTask('${t.id}');renderWorkday()">✓</button></div>`; }).join('') : `<div class="text-sm text-muted">${planned.some(i => i.task.work) ? 'As demais já estão na linha do tempo.' : 'Nenhuma tarefa marcada como do trabalho. Use "+ Tarefa do trabalho" ou marque 💼 numa tarefa.'}</div>`}
         ${logs.length ? `<div class="font-semibold mt-4 mb-1">Cronometrado ${d === today ? 'hoje' : 'neste dia'}</div>${logs.map(l => `<div class="task-time-log"><span>${_minToHM(Math.round(l.s))}–${l.live ? 'agora' : _minToHM(Math.round(l.e))} ${l.t.work ? '💼' : ''} ${_esc(l.t.title)}</span><span>${_fmtMinShort(l.e - l.s)}</span></div>`).join('')}${persInMin >= 1 ? `<div class="text-xs text-muted mt-1">${_fmtMinShort(persInMin)} de tarefas pessoais dentro do expediente.</div>` : ''}` : ''}
       </div>
@@ -13524,7 +13527,7 @@ function autoReserve(silent) {
     });
     // 1b) tarefa "Aguardando": sai de todos os blocos futuros (reservados ou postos na agenda pelo Planejador)
     const waitIds = new Set((STATE.tasks || []).filter(t => t.status === 'waiting').map(t => t.id));
-    const freed = (STATE.events || []).filter(e => e.taskId && waitIds.has(e.taskId) && new Date(e.start).getTime() > now);
+    const freed = (STATE.events || []).filter(e => e.taskId && waitIds.has(e.taskId) && new Date(e.end || e.start).getTime() > now); // inclui o bloco que está acontecendo agora
     if (freed.length) {
       const ids = new Set(freed.map(e => e.id));
       STATE.events = STATE.events.filter(e => !ids.has(e.id)); ids.forEach(id => delete map[id]); changed = true;
