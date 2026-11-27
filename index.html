@@ -7364,13 +7364,13 @@ function renderFinOverview(container) {
     </div>
 
     <div class="grid grid-3 mb-4">
-      <div class="stat-card">
-        <div class="stat-label">Receitas</div>
+      <div class="stat-card" style="cursor:pointer" title="Ver de onde vem este número" onclick="finTxGoto({period:_fYm(finYear,finMonth),type:'income'})">
+        <div class="stat-label">Receitas <span class="text-xs text-muted">· ver lista ›</span></div>
         <div class="stat-value" style="color:var(--accent-green)">${fmtBRL(incomeReal)}</div>
         <div class="stat-sub">realizadas${incomePrev>0?` · <span style="color:var(--accent)">+ ${fmtBRL(incomePrev)} previstas</span>`:''}</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Despesas</div>
+      <div class="stat-card" style="cursor:pointer" title="Ver de onde vem este número" onclick="finTxGoto({period:_fYm(finYear,finMonth),type:'expense'})">
+        <div class="stat-label">Despesas <span class="text-xs text-muted">· ver lista ›</span></div>
         <div class="stat-value" style="color:var(--danger)">${fmtBRL(expenseReal)}</div>
         <div class="stat-sub">realizadas${expensePrev>0?` · <span style="color:var(--accent)">+ ${fmtBRL(expensePrev)} previstas</span>`:''}</div>
       </div>
@@ -7404,17 +7404,18 @@ function renderFinOverview(container) {
       </div>`;
     })()}
 
-    ${acctEntries.length ? `
+    ${acctEntries.filter(([n]) => n !== 'Sem conta').length ? `
     <div class="card mb-4">
-      <div class="font-semibold mb-3">Saldo por conta / banco</div>
+      <div class="font-semibold mb-1">Movimento por conta</div>
+      <div class="text-xs text-muted mb-3">Entradas menos saídas lançadas em cada conta desde o primeiro lançamento. <strong>Não é o saldo do banco</strong> — só bate se tudo daquela conta estiver lançado.</div>
       <div class="grid grid-3" style="gap:12px">
-        ${acctEntries.map(([name,bal]) => `
+        ${acctEntries.filter(([n]) => n !== 'Sem conta').map(([name,bal]) => `
           <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
             <div class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>
             <div class="font-semibold" style="font-variant-numeric:tabular-nums;color:${bal>=0?'var(--text)':'var(--danger)'}">${fmtBRL(bal)}</div>
           </div>`).join('')}
       </div>
-      <div class="text-xs text-muted mt-2">Saldo acumulado por conta (todas as transações registradas).</div>
+      ${acctEntries.some(([n]) => n === 'Sem conta') ? `<div class="text-xs text-muted mt-2">${STATE.transactions.filter(t => !(t.account||'').trim() && !isBenefitTxn(t)).length} lançamento(s) sem conta não aparecem aqui. <a href="#" onclick="finTxGoto({acct:'(sem conta)',period:'all'});return false">Ver</a></div>` : ''}
     </div>` : ''}
 
     <div class="grid grid-2">
@@ -8288,7 +8289,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.44.0';
+const APP_VERSION = '3.45.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14335,7 +14336,7 @@ function finVariableAvg() {
   const active = _fMonthsBack(3).filter(ym => STATE.transactions.some(t => t.date && t.date.startsWith(ym) && _fRealized(t)));
   const sums = {};
   STATE.transactions.forEach(t => {
-    if (t.type !== 'expense' || !t.date || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t) || t.fixedHist
+    if (t.type !== 'expense' || !t.date || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t) || t.fixedHist || t.transfer
         || t.recurrence === 'installment' || FIN_NOT_SPEND.has(t.category)) return;
     if (!active.includes(t.date.slice(0,7))) return;
     const c = t.category || 'outros';
@@ -15274,6 +15275,60 @@ renderFinGoals = function (container) {
       📈 Pela sua Projeção (sobra de ${fmtBRL(pr.baseSobra)}/mês): ${_fHitText(x.hit, x.n)}
       ${res.length ? `<br><span class="text-muted">Valor guardado acompanha o saldo de:</span> ${res.map(r => `<label style="margin-right:8px;white-space:nowrap"><input type="checkbox" ${linked.includes(r.id) ? 'checked' : ''} onchange="finGoalToggleReserve('${x.g.id}','${r.id}',this.checked)"> ${_esc(r.name || 'reserva')}</label>`).join('')}` : ''}</div>`);
   });
+};
+
+// ── v3.45.0 — Visão geral conferível + detector de coisas contadas errado ──
+// Transferências (aplicar/resgatar caixinha, pagar fatura, mover entre contas) não são receita nem gasto.
+const _origGetMonthTxnsV345 = getMonthTxns;
+getMonthTxns = function (month, year) { return _origGetMonthTxnsV345(month, year).filter(t => !t.transfer); };
+
+const FIN_RE_FATURA = /fatura|pagamento\s*(d[oa]\s*)?cart|pgto\.?\s*cart|pag\.?\s*fatura/i;
+const FIN_RE_TRANSF = /caixinha|aplica[cç]|resgate|transfer[eê]ncia|entre contas|guardad|guardar|poupan[cç]a|cofrinho|investiment|\brdb\b|\bcdb\b|tesouro/i;
+function finTxIssues() {
+  const tx = STATE.transactions.filter(t => t.date && !t.projected);
+  const dupMap = {};
+  tx.forEach(t => { const k = [t.date, t.type, _ftNorm(t.desc), (+t.amount || 0).toFixed(2)].join('|'); (dupMap[k] = dupMap[k] || []).push(t); });
+  const dups = Object.values(dupMap).filter(a => a.length > 1);
+  const fatura = tx.filter(t => !t.transfer && t.type === 'expense' && t.method !== 'credito' && FIN_RE_FATURA.test(t.desc || ''));
+  const transf = tx.filter(t => !t.transfer && !fatura.includes(t) && (FIN_RE_TRANSF.test(t.desc || '') || t.category === 'investimento'));
+  return { dups, fatura, transf };
+}
+function finTxSetTransfer(ids, on) {
+  (Array.isArray(ids) ? ids : [ids]).forEach(id => { const t = STATE.transactions.find(x => x.id === id); if (t) { t.transfer = !!on; t.updatedAt = Date.now(); } });
+  save(); toast(on ? '⇄ Marcado como transferência — não conta como receita nem gasto' : 'Voltou a contar como receita/gasto'); renderFinancial();
+}
+function finTxDeleteDup(id) {
+  const i = STATE.transactions.findIndex(t => t.id === id); if (i < 0) return;
+  STATE.transactions.splice(i, 1); save(); toast('Cópia excluída'); renderFinancial();
+}
+const _origTxnRowV345 = txnRow;
+txnRow = function (t, wd) {
+  let h = _origTxnRowV345(t, wd);
+  if (t.transfer) h = h.replace('<div class="item-meta">', '<div class="item-meta"><span class="chip" title="Não conta como receita nem gasto">⇄ transferência</span>');
+  if (!t.projected) h = h.replace(`<button class="btn-icon" onclick="editTransaction('${t.id}')">✎</button>`,
+    `<button class="btn-icon" title="${t.transfer ? 'Voltar a contar como receita/gasto' : 'É transferência (não é gasto nem receita)'}" onclick="finTxSetTransfer('${t.id}',${t.transfer ? 'false' : 'true'})" style="${t.transfer ? 'color:var(--accent)' : 'opacity:.55'}">⇄</button><button class="btn-icon" onclick="editTransaction('${t.id}')">✎</button>`);
+  return h;
+};
+const _origRenderFinTransactionsV345 = renderFinTransactions;
+renderFinTransactions = function (container) {
+  _origRenderFinTransactionsV345.apply(this, arguments);
+  const is = finTxIssues();
+  const row = (t, act) => `<div class="flex justify-between items-center text-sm" style="gap:8px;padding:4px 0;border-bottom:1px dashed var(--border)">
+    <span>${formatDate(t.date)} · ${_esc(t.desc)} <span class="text-xs text-muted">${t.type === 'income' ? 'receita' : 'despesa'}</span></span>
+    <span class="flex items-center gap-1"><span style="font-variant-numeric:tabular-nums">${fmtBRL(+t.amount || 0)}</span>${act}</span></div>`;
+  const parts = [];
+  if (is.dups.length) parts.push(`<div class="text-sm font-semibold mt-2">🟰 Lançados duas vezes (mesmo dia, nome e valor) — ${is.dups.length}</div>
+    ${is.dups.slice(0, 5).map(a => row(a[1], `<button class="btn btn-ghost btn-sm" onclick="finTxDeleteDup('${a[1].id}')">Excluir a cópia</button>`)).join('')}`);
+  if (is.fatura.length) parts.push(`<div class="text-sm font-semibold mt-2">💳 Pagamento de fatura contado como gasto — ${is.fatura.length}</div>
+    <div class="text-xs text-muted">Se as compras do cartão também estão lançadas, o mesmo dinheiro conta duas vezes. Marque como transferência.</div>
+    ${is.fatura.slice(0, 5).map(t => row(t, `<button class="btn btn-ghost btn-sm" onclick="finTxSetTransfer('${t.id}',true)">É transferência</button>`)).join('')}
+    ${is.fatura.length > 1 ? `<button class="btn btn-ghost btn-sm mt-1" onclick="finTxSetTransfer(${_esc(JSON.stringify(is.fatura.map(t => t.id))).replace(/&quot;/g, "'")},true)">Marcar os ${is.fatura.length} como transferência</button>` : ''}`);
+  if (is.transf.length) parts.push(`<div class="text-sm font-semibold mt-2">⇄ Parece dinheiro guardado/movido entre contas — ${is.transf.length}</div>
+    <div class="text-xs text-muted">Guardar na caixinha, resgatar ou passar de uma conta para outra não é gasto nem receita.</div>
+    ${is.transf.slice(0, 5).map(t => row(t, `<button class="btn btn-ghost btn-sm" onclick="finTxSetTransfer('${t.id}',true)">É transferência</button>`)).join('')}
+    ${is.transf.length > 1 ? `<button class="btn btn-ghost btn-sm mt-1" onclick="finTxSetTransfer(${_esc(JSON.stringify(is.transf.map(t => t.id))).replace(/&quot;/g, "'")},true)">Marcar os ${is.transf.length} como transferência</button>` : ''}`);
+  if (parts.length) container.insertAdjacentHTML('afterbegin', `<div class="card mb-3" style="border-left:3px solid var(--danger)"><div class="font-semibold">🔎 Pode estar sendo contado errado</div>${parts.join('')}
+    <div class="text-xs text-muted mt-2">O botão ⇄ em cada lançamento faz o mesmo: transferência não entra em Receitas, Despesas nem na Projeção.</div></div>`);
 };
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
