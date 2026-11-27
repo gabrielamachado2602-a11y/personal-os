@@ -8289,7 +8289,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.45.1';
+const APP_VERSION = '3.45.2';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14682,10 +14682,9 @@ function renderFinProjection(container) {
     <div class="font-semibold mb-2">⚙ Seu perfil financeiro</div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
       <div><div class="text-xs text-muted">Salário líquido mensal</div>${inp(+p.netSalary>0?p.netSalary:'', `finPlanField('netSalary',this.value,true)`, 'inputmode="decimal"')}</div>
-      <div><div class="text-xs text-muted">Meta de poupança mensal</div>${inp(+p.savingsTarget>0?p.savingsTarget:'', `finPlanField('savingsTarget',this.value,true)`, 'inputmode="decimal"')}</div>
+      <div><div class="text-xs text-muted">Quanto quero guardar por mês (opcional)</div>${inp(+p.savingsTarget>0?p.savingsTarget:'', `finPlanField('savingsTarget',this.value,true)`, 'inputmode="decimal"')}</div>
       <div><div class="text-xs text-muted">CDI ao ano (%)</div>${inp(p.cdi, `finPlanField('cdi',this.value,true)`, 'inputmode="decimal"')}</div>
       <div><div class="text-xs text-muted">IR sobre o rendimento (%)</div>${inp(p.irPct, `finPlanField('irPct',this.value,true)`, 'inputmode="decimal"')}</div>
-      <div><div class="text-xs text-muted">Corte no cenário "cortes" (%)</div>${inp(p.cutPct, `finPlanField('cutPct',this.value,true)`, 'inputmode="decimal"')}</div>
       <div><div class="text-xs text-muted">Renda extra na projeção</div>
         <select class="form-select" style="padding:4px 8px;font-size:.8rem" onchange="finPlanField('extraMode',this.value,false)">
           <option value="none" ${p.extraMode!=='avg'?'selected':''}>Não contar (conservador)</option>
