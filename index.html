@@ -2002,6 +2002,11 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
       </datalist>
       <div class="text-xs text-muted mt-2">Pagamentos por Benefícios (VR/VA) entram num saldo separado, sem descontar do saldo geral.</div>
     </div>
+    <div class="form-group" id="txn-fromgoal-wrap">
+      <label class="form-label">Pago com dinheiro já guardado? <span class="text-muted" style="font-size:.75rem">(opcional)</span></label>
+      <select class="form-select" id="txn-fromgoal"><option value="">Não — sai do dinheiro do mês</option></select>
+      <div class="text-xs text-muted mt-2">Escolha a meta/envelope de onde o dinheiro sai: o valor não pesa no mês (nem na Projeção) e, quando o gasto for confirmado, sai do "guardado" da meta.</div>
+    </div>
     <div class="form-group">
       <label class="form-label">Meta relacionada <span class="text-muted" style="font-size:.75rem">(opcional)</span></label>
       <select class="form-select" id="txn-goal"><option value="">Nenhuma</option></select>
@@ -7923,6 +7928,7 @@ function saveTransaction() {
     method: document.getElementById('txn-method').value,
     account: document.getElementById('txn-account').value.trim(),
     goalId: document.getElementById('txn-goal').value || '',
+    fromGoalId: (document.getElementById('txn-type').value === 'expense' && document.getElementById('txn-fromgoal')) ? document.getElementById('txn-fromgoal').value : '',
     notes: document.getElementById('txn-notes').value.trim(),
     attachments: JSON.parse(document.getElementById('txn-attachments-data').value||'[]'),
     updatedAt: Date.now(),
@@ -8295,7 +8301,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.47.1';
+const APP_VERSION = '3.48.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14342,7 +14348,7 @@ function finVariableAvg() {
   const active = _fMonthsBack(3).filter(ym => STATE.transactions.some(t => t.date && t.date.startsWith(ym) && _fRealized(t)));
   const sums = {};
   STATE.transactions.forEach(t => {
-    if (t.type !== 'expense' || !t.date || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t) || t.fixedHist || t.transfer
+    if (t.type !== 'expense' || !t.date || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t) || t.fixedHist || t.transfer || t.fromGoalId
         || t.recurrence === 'installment' || FIN_NOT_SPEND.has(t.category)) return;
     if (!active.includes(t.date.slice(0,7))) return;
     const c = t.category || 'outros';
@@ -14517,7 +14523,7 @@ function finAlerts(pr) {
   const ym = _fYm(new Date().getFullYear(), new Date().getMonth());
   const now = {};
   STATE.transactions.forEach(t => {
-    if (t.type !== 'expense' || !t.date || !t.date.startsWith(ym) || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t) || t.fixedHist
+    if (t.type !== 'expense' || !t.date || !t.date.startsWith(ym) || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t) || t.fixedHist || t.fromGoalId || t.transfer
         || t.recurrence === 'installment' || FIN_NOT_SPEND.has(t.category)) return;
     now[t.category||'outros'] = (now[t.category||'outros']||0) + (+t.amount||0);
   });
@@ -15242,7 +15248,7 @@ renderFinProjection = function (container) {
     ${varRows || '<div class="text-sm text-muted">Sem gastos variáveis lançados.</div>'}
     <div class="flex gap-2 mt-1" style="align-items:center"><select class="form-select" id="finvar-newcat" style="max-width:220px;padding:4px 8px;font-size:.8rem"><option value="">+ estimar outra categoria</option>${catOpts}</select><button class="btn btn-ghost btn-sm" onclick="finPlanVarAdd()">Adicionar</button></div>
     ${(() => { const d0 = new Date(), from = _fYm(d0.getFullYear(), d0.getMonth() + 1), to = _fYm(d0.getFullYear(), d0.getMonth() + 12);
-      const oo = STATE.transactions.filter(t => t.status === 'previsto' && (!t.recurrence || t.recurrence === 'none') && !t.installmentTotal && !t.transfer && !isBenefitTxn(t) && t.date && t.date.slice(0,7) >= from && t.date.slice(0,7) <= to).sort((x,y) => x.date.localeCompare(y.date));
+      const oo = STATE.transactions.filter(t => t.status === 'previsto' && (!t.recurrence || t.recurrence === 'none') && !t.installmentTotal && !t.transfer && !t.fromGoalId && !isBenefitTxn(t) && t.date && t.date.slice(0,7) >= from && t.date.slice(0,7) <= to).sort((x,y) => x.date.localeCompare(y.date));
       return oo.length ? `<div class="text-xs font-semibold mt-3 mb-1" style="color:var(--text2)">PREVISTOS AVULSOS · não entram no mês típico, só no mês deles (veja "Mês a mês")</div>` + oo.map(t => line(`${_esc(t.desc)} <span class="text-xs text-muted">(${t.type === 'income' ? 'entrada' : 'saída'} · ${t.date.split('-').reverse().join('/')})</span>`, +t.amount || 0, `<button class="btn-icon" style="font-size:.75rem" title="Editar" onclick="editTransaction('${t.id}')">✎</button>`)).join('') : ''; })()}
     <div class="flex justify-between text-sm mt-3" style="border-top:1px solid var(--border);padding-top:6px"><strong>SOBRA</strong><strong>${fmtBRL(b.sobra)}</strong></div>
     <div class="text-xs font-semibold mt-3 mb-1" style="color:var(--accent)">GUARDAR NAS METAS · ${fmtBRL(aportes)}</div>
@@ -15439,6 +15445,63 @@ function finGoalAportes() {
   const list = (STATE.finGoals || []).filter(g => (+g.target || 0) > (+g.current || 0));
   return { list, total: list.reduce((s,g) => s + (+g.monthlyContribution || 0), 0) };
 }
+
+
+// ── v3.48.0 — Gasto pago com dinheiro já guardado (envelope/meta) ──
+function _txnFillFromGoal(sel) {
+  const el = document.getElementById('txn-fromgoal'); if (!el) return;
+  const goals = (STATE.finGoals || []).slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  el.innerHTML = `<option value="">Não — sai do dinheiro do mês</option>` + goals.map(g => `<option value="${g.id}" ${g.id === sel ? 'selected' : ''}>${_esc(g.name)} (guardado ${fmtBRL(+g.current || 0)})</option>`).join('');
+}
+const _origOpenTransactionModalV348 = openTransactionModal;
+openTransactionModal = function () { _origOpenTransactionModalV348.apply(this, arguments); _txnFillFromGoal(''); };
+const _origEditTransactionV348 = editTransaction;
+editTransaction = function (id) {
+  _origEditTransactionV348.apply(this, arguments);
+  const t = STATE.transactions.find(x => x.id === id); _txnFillFromGoal(t && t.fromGoalId || '');
+};
+// Não é gasto do mês: fora de receitas/despesas do mês e da Projeção
+const _origGetMonthTxnsV348 = getMonthTxns;
+getMonthTxns = function (month, year) { return _origGetMonthTxnsV348(month, year).filter(t => !t.fromGoalId); };
+// Baixa no "guardado" da meta quando o gasto é realizado (idempotente; desfaz se apagar/editar)
+function finGoalReconcileSpends() {
+  const p = finPlan();
+  if (!p.goalSpends || typeof p.goalSpends !== 'object') p.goalSpends = {};
+  const reg = p.goalSpends; let changed = false;
+  const byId = new Map(STATE.transactions.map(t => [t.id, t]));
+  const goal = id => (STATE.finGoals || []).find(g => g.id === id);
+  // desfaz registros de lançamentos que sumiram ou mudaram
+  Object.keys(reg).forEach(tid => {
+    const r = reg[tid], t = byId.get(tid);
+    const want = t && t.fromGoalId && t.type === 'expense' && t.status !== 'previsto' ? { goalId: t.fromGoalId, amount: +t.amount || 0 } : null;
+    if (!want || want.goalId !== r.goalId || Math.abs(want.amount - r.amount) > 0.004) {
+      const g = goal(r.goalId); if (g) { g.current = Math.round(((+g.current || 0) + r.amount) * 100) / 100; g.updatedAt = Date.now(); }
+      delete reg[tid]; changed = true;
+    }
+  });
+  // aplica os novos
+  STATE.transactions.forEach(t => {
+    if (!t.fromGoalId || t.type !== 'expense' || t.status === 'previsto' || t.projected || reg[t.id]) return;
+    const g = goal(t.fromGoalId); if (!g) return;
+    g.current = Math.round(((+g.current || 0) - (+t.amount || 0)) * 100) / 100; g.updatedAt = Date.now();
+    reg[t.id] = { goalId: t.fromGoalId, amount: +t.amount || 0 }; changed = true;
+  });
+  return changed;
+}
+const _origSaveLocalV348 = saveLocal;
+saveLocal = function () {
+  try { finGoalReconcileSpends(); } catch (e) { console.warn('finGoalReconcileSpends', e); }
+  return _origSaveLocalV348.apply(this, arguments);
+};
+const _origTxnRowV348 = txnRow;
+txnRow = function (t, wd) {
+  let h = _origTxnRowV348(t, wd);
+  if (t.fromGoalId) {
+    const g = (STATE.finGoals || []).find(x => x.id === t.fromGoalId);
+    h = h.replace('<div class="item-meta">', `<div class="item-meta"><span class="chip" title="Não pesa no mês: sai do dinheiro guardado" style="color:var(--accent);border-color:var(--accent)">💰 do guardado${g ? ': ' + _esc(g.name) : ''}</span>`);
+  }
+  return h;
+};
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
