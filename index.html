@@ -2397,7 +2397,7 @@ let STATE = {
     { id: 'proposito', name: 'Propósito & Impacto', color: '#9B806D', active: true,
       subs: [{id:'prop-editais',name:'Inscrição em editais'},{id:'prop-seletivo',name:'Processo seletivo'},{id:'prop-instagram',name:'Instagram',module:'social',platform:'instagram'}] },
     { id: 'bemEstar', name: 'Bem-estar & Energia', color: '#82917A', active: true,
-      subs: [{id:'bem-alim',name:'Alimentação'},{id:'bem-musc',name:'Musculação'},{id:'bem-saude',name:'Saúde'},{id:'bem-auto',name:'Autoestima'},{id:'bem-hab',name:'Habitação'},{id:'bem-tkd',name:'Taekwondo'}] },
+      subs: [{id:'bem-musc',name:'Musculação'},{id:'bem-saude',name:'Saúde'},{id:'bem-auto',name:'Autoestima'},{id:'bem-hab',name:'Habitação'},{id:'bem-tkd',name:'Taekwondo'}] },
     { id: 'repertorio', name: 'Repertório & Lazer', color: '#A58A9D', active: true,
       subs: [{id:'rep-filmes',name:'Filmes'},{id:'rep-series',name:'Séries'},{id:'rep-livros',name:'Livros'},{id:'rep-exp',name:'Experiências'}] },
   ],
@@ -14273,28 +14273,24 @@ renderSubAreaPage = function (subId) {
   _origRenderSubAreaV340.apply(this, arguments);
   const page = document.getElementById('page-subarea');
   if (!page) return;
-  // Ciclo Menstrual → bem-saude
+  // Ciclo Menstrual + Alimentação → bem-saude
   if (subId === 'bem-saude') {
-    const existing = page.querySelector('#cycle-card-host');
-    if (!existing) {
+    const first = page.querySelector('.card');
+    if (!page.querySelector('#cycle-card-host')) {
       const host = document.createElement('div');
       host.id = 'cycle-card-host';
       host.innerHTML = cycleCardHTML();
-      const first = page.querySelector('.card');
       if (first) first.insertAdjacentElement('beforebegin', host);
       else page.insertAdjacentElement('afterbegin', host);
     }
-  }
-  // Alimentação checklist → bem-alim
-  if (subId === 'bem-alim') {
-    const existing = page.querySelector('#meal-card-host');
-    if (!existing) {
+    if (!page.querySelector('#meal-card-host')) {
       const host = document.createElement('div');
       host.id = 'meal-card-host';
       const today = new Date().toISOString().slice(0,10);
       host.innerHTML = mealChecklistCardHTML(today);
-      const first = page.querySelector('.card');
-      if (first) first.insertAdjacentElement('beforebegin', host);
+      const cycleHost = page.querySelector('#cycle-card-host');
+      if (cycleHost) cycleHost.insertAdjacentElement('afterend', host);
+      else if (first) first.insertAdjacentElement('beforebegin', host);
       else page.insertAdjacentElement('afterbegin', host);
     }
   }
