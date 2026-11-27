@@ -8289,7 +8289,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.41.0';
+const APP_VERSION = '3.41.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14404,8 +14404,12 @@ function finBenefitStats() {
     } else if (t.type === 'expense' && t.category === 'alimentacao') foodCash[ym] = (foodCash[ym]||0) + (+t.amount||0);
   });
   const avg = o => { const v = Object.values(o); return v.length ? v.reduce((a,b)=>a+b,0) / v.length : 0; };
-  const credit = +p.benefitMonthly > 0 ? +p.benefitMonthly : avg(inM);
-  return { credit, creditFromData: !(+p.benefitMonthly > 0), spend: avg(outM), foodCash: Object.keys(foodCash).length ? Object.values(foodCash).reduce((a,b)=>a+b,0) / months.length : 0 };
+  // v3.41.1: a média dos créditos lançados sempre vence; o valor digitado só vale enquanto não há créditos lançados
+  const nCred = Object.keys(inM).length;
+  const credit = nCred > 0 ? avg(inM) : (+p.benefitMonthly || 0);
+  const lastCredit = STATE.transactions.filter(t => isBenefitTxn(t) && t.type === 'income' && t.date && _fRealized(t))
+    .sort((a,b) => b.date.localeCompare(a.date))[0] || null;
+  return { credit, creditFromData: nCred > 0, creditMonths: nCred, lastCredit, spend: avg(outM), foodCash: Object.keys(foodCash).length ? Object.values(foodCash).reduce((a,b)=>a+b,0) / months.length : 0 };
 }
 
 function _fNetMonthlyRate(cdiPct) {
@@ -14652,11 +14656,12 @@ function renderFinProjection(container) {
     <div class="font-semibold mb-1">🍽 VR/VA</div>
     <div class="text-xs text-muted mb-2">Benefício fica fora do saldo e da projeção (só serve para alimentação). Aqui você vê se ele cobre a sua comida.</div>
     <div class="text-sm" style="line-height:1.7">
-      Crédito médio: <strong>${fmtBRL(b.credit)}</strong>/mês ${b.creditFromData ? '<span class="text-xs text-muted">(dos lançamentos)</span>' : '<span class="text-xs text-muted">(seu valor)</span>'}<br>
+      Crédito médio: <strong>${fmtBRL(b.credit)}</strong>/mês ${b.creditFromData ? `<span class="text-xs text-muted">(média dos créditos lançados em ${b.creditMonths} ${b.creditMonths>1?'meses':'mês'} — atualiza sozinha)</span>` : (b.credit > 0 ? '<span class="text-xs text-muted">(valor inicial — será trocado pela média assim que você lançar os créditos)</span>' : '<span class="text-xs text-muted">(lance os créditos do VR/VA como receita com forma de pagamento Benefícios)</span>')}<br>
+      ${b.lastCredit ? `Último crédito: <strong>${fmtBRL(+b.lastCredit.amount||0)}</strong> em ${formatDate(b.lastCredit.date)}<br>` : ''}
       Gasto médio no VR/VA: <strong>${fmtBRL(b.spend)}</strong>/mês<br>
       Alimentação paga com dinheiro: <strong style="color:${b.foodCash>0?'var(--accent)':'inherit'}">${fmtBRL(b.foodCash)}</strong>/mês
     </div>
-    <div class="flex gap-2 mt-2" style="align-items:center"><span class="text-xs">Crédito mensal (opcional)</span><span style="width:100px">${inp(+p.benefitMonthly>0?p.benefitMonthly:'', `finPlanField('benefitMonthly',this.value,true)`, 'inputmode="decimal" placeholder="média"')}</span></div>
+    <div class="flex gap-2 mt-2" style="align-items:center"><span class="text-xs">Valor inicial (só até haver créditos lançados)</span><span style="width:100px">${inp(+p.benefitMonthly>0?p.benefitMonthly:'', `finPlanField('benefitMonthly',this.value,true)`, 'inputmode="decimal" placeholder="média"')}</span></div>
   </div>`;
 
   const resHTML = p.reserves.map(r => `<div class="flex gap-2" style="flex-wrap:wrap;align-items:center;padding:4px 0">
