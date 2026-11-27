@@ -8289,7 +8289,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.42.0';
+const APP_VERSION = '3.43.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14535,6 +14535,7 @@ function finAlerts(pr) {
 function _finRerender() {
   const c = document.getElementById('fin-view') || document.getElementById('fin-view-sub');
   if (c && finView === 'projection') renderFinProjection(c);
+  else if (c) renderFinancial();
 }
 function finPlanField(field, value, isNum) {
   const p = finPlan();
@@ -14942,6 +14943,130 @@ function finCardReconHTML(c, st) {
       <div class="text-xs text-muted mt-1">Regra usada: compra feita no dia do fechamento já vai para a fatura seguinte.</div>
     </div></details>`;
 }
+
+// ── v3.43.0 — Metas financeiras ligadas à Projeção ──
+// finGoal.reserveIds[]: meta acompanhada pelo saldo das reservas do perfil (current = soma, atualiza sozinho).
+function finGoalsSyncFromReserves() {
+  const res = finPlan().reserves || [];
+  let changed = false;
+  (STATE.finGoals || []).forEach(g => {
+    if (!Array.isArray(g.reserveIds) || !g.reserveIds.length) return;
+    const ids = g.reserveIds.filter(id => res.some(r => r.id === id));
+    if (ids.length !== g.reserveIds.length) { g.reserveIds = ids; changed = true; }
+    if (!ids.length) return;
+    const v = Math.round(res.filter(r => ids.includes(r.id)).reduce((s,r) => s + (+r.balance || 0), 0) * 100) / 100;
+    if (Math.abs((+g.current || 0) - v) > 0.004) { g.current = v; g.updatedAt = Date.now(); changed = true; }
+  });
+  if (changed) saveLocal();
+}
+function finGoalToggleReserve(goalId, resId, on) {
+  const g = (STATE.finGoals || []).find(x => x.id === goalId); if (!g) return;
+  if (!Array.isArray(g.reserveIds)) g.reserveIds = [];
+  g.reserveIds = on ? [...new Set([...g.reserveIds, resId])] : g.reserveIds.filter(x => x !== resId);
+  g.updatedAt = Date.now();
+  finGoalsSyncFromReserves(); save(); renderFinancial();
+}
+function _fMonthsUntil(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + 'T12:00:00'), n = new Date();
+  return (d.getFullYear() - n.getFullYear()) * 12 + (d.getMonth() - n.getMonth());
+}
+// Aporte mensal necessário para sair de `cur` e chegar em `target` em `n` meses com rendimento `r` ao mês
+function _fNeedPerMonth(cur, target, n, r) {
+  if (target <= cur) return 0;
+  if (!n || n <= 0) return target - cur;
+  if (r <= 0) return (target - cur) / n;
+  const f = Math.pow(1 + r, n);
+  return Math.max(0, (target - cur * f) * r / (f - 1));
+}
+// Simula 36 meses distribuindo o aporte mensal pelas metas em ordem de prazo (a mais próxima primeiro)
+function _fSimGoals(goals, monthly, r) {
+  const bal = goals.map(g => +g.current || 0);
+  const hit = goals.map((g, i) => bal[i] >= (+g.target || 0) ? 0 : null);
+  for (let m = 1; m <= 36; m++) {
+    for (let i = 0; i < goals.length; i++) bal[i] *= (1 + r);
+    let left = Math.max(0, monthly);
+    for (let i = 0; i < goals.length && left > 0; i++) {
+      if (hit[i] !== null) continue;
+      const need = (+goals[i].target || 0) - bal[i];
+      const put = Math.min(need, left); bal[i] += put; left -= put;
+    }
+    for (let i = 0; i < goals.length; i++) if (hit[i] === null && bal[i] >= (+goals[i].target || 0) - 0.01) hit[i] = m;
+    if (hit.every(h => h !== null)) break;
+  }
+  return hit;
+}
+function finGoalsPlan(pr) {
+  finGoalsSyncFromReserves();
+  pr = pr || finProjection();
+  const goals = (STATE.finGoals || []).filter(g => (+g.target || 0) > 0)
+    .slice().sort((a,b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
+  const r = pr.rate;
+  const rows = goals.map(g => {
+    const n = _fMonthsUntil(g.deadline);
+    const need = (n != null && n > 0) ? _fNeedPerMonth(+g.current || 0, +g.target, n, r) : null;
+    return { g, n, need, done: (+g.current || 0) >= +g.target };
+  });
+  const atual = _fSimGoals(goals, pr.baseSobra, r);
+  const meta = +pr.p.savingsTarget > 0 ? _fSimGoals(goals, +pr.p.savingsTarget, r) : null;
+  rows.forEach((x, i) => { x.hitAtual = atual[i]; x.hitMeta = meta ? meta[i] : null; });
+  const needSum = rows.filter(x => !x.done && x.need != null).reduce((s,x) => s + x.need, 0);
+  return { rows, needSum, sobra: pr.baseSobra, savingsTarget: +pr.p.savingsTarget || 0 };
+}
+function _fHitLabel(m, n) {
+  if (m === null || m === undefined) return '<span style="color:var(--danger)">não chega em 3 anos</span>';
+  if (m === 0) return '<span style="color:var(--success)">✓ já atingida</span>';
+  const d = new Date(); const ym = _fYm(d.getFullYear(), d.getMonth() + m);
+  const late = n != null && m > n;
+  return `<span style="color:${late ? 'var(--accent)' : 'var(--success)'}">${_fYmLabel(ym)}${n != null ? (late ? ` · ${m - n} ${m - n > 1 ? 'meses' : 'mês'} depois do prazo` : ' · dentro do prazo') : ''}</span>`;
+}
+function finGoalsPlanHTML(pr, compact) {
+  const gp = finGoalsPlan(pr);
+  const res = finPlan().reserves || [];
+  if (!gp.rows.length) return `<div class="card mb-3"><div class="font-semibold mb-1">🎯 Metas financeiras</div>
+    <div class="text-sm text-muted">Nenhuma meta financeira com valor. Crie em "Metas financeiras" — aqui você vê quando cada uma é atingida pelo seu ritmo.</div></div>`;
+  const rowsHTML = gp.rows.map(x => {
+    const g = x.g;
+    const linked = Array.isArray(g.reserveIds) && g.reserveIds.length;
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div class="flex justify-between" style="gap:8px;flex-wrap:wrap"><strong class="text-sm">${_esc(g.name)}</strong>
+        <span class="text-xs">${fmtBRL(+g.current || 0)} de ${fmtBRL(+g.target)}${g.deadline ? ` · prazo ${g.deadline.split('-').reverse().join('/')}` : ' · sem prazo'}</span></div>
+      <div class="text-xs mt-1" style="line-height:1.7">
+        ${x.done ? '' : (x.need != null ? `Para cumprir o prazo: guardar <strong>${fmtBRL(x.need)}/mês</strong>.<br>` : (g.deadline ? '<span style="color:var(--danger)">Prazo já passou.</span><br>' : ''))}
+        No ritmo atual (sobra de ${fmtBRL(gp.sobra)}/mês): ${_fHitLabel(x.hitAtual, x.n)}<br>
+        ${gp.savingsTarget > 0 ? `Poupando a meta (${fmtBRL(gp.savingsTarget)}/mês): ${_fHitLabel(x.hitMeta, x.n)}<br>` : ''}
+        ${compact ? (linked ? '<span class="text-muted">Valor guardado vem das reservas do perfil.</span>' : '') :
+          (res.length ? `<span class="text-muted">Acompanhar pelo saldo de:</span> ${res.map(rv => `<label style="margin-right:8px;white-space:nowrap"><input type="checkbox" ${linked && g.reserveIds.includes(rv.id) ? 'checked' : ''} onchange="finGoalToggleReserve('${g.id}','${rv.id}',this.checked)"> ${_esc(rv.name || 'reserva')}</label>`).join('')}${linked ? '<br><span class="text-muted">O valor guardado desta meta agora segue essas reservas.</span>' : ''}` : '')}
+      </div></div>`;
+  }).join('');
+  const many = gp.rows.length > 1 ? '<div class="text-xs text-muted mb-1">A sobra vai primeiro para a meta com prazo mais próximo; quando ela é atingida, passa para a seguinte.</div>' : '';
+  const sumHTML = gp.needSum > 0 ? `<div class="text-sm mt-2">Para cumprir <strong>todos</strong> os prazos: <strong>${fmtBRL(gp.needSum)}/mês</strong>.
+    ${gp.sobra >= gp.needSum ? `<span style="color:var(--success)">Sua sobra cobre isso.</span>` : `<span style="color:var(--accent)">Faltam ${fmtBRL(gp.needSum - gp.sobra)}/mês na sua sobra.</span>`}
+    ${Math.abs(gp.savingsTarget - gp.needSum) > 1 ? `<button class="btn btn-ghost btn-sm" onclick="finPlanField('savingsTarget','${Math.ceil(gp.needSum)}',true)">Usar ${fmtBRL(Math.ceil(gp.needSum))} como meta de poupança</button>` : ''}</div>` : '';
+  return `<div class="card mb-3"><div class="font-semibold mb-1">🎯 Metas financeiras na projeção</div>${many}${rowsHTML}${sumHTML}</div>`;
+}
+
+// Projeção: bloco das metas logo depois dos alertas
+const _origRenderFinProjectionV343 = renderFinProjection;
+renderFinProjection = function (container) {
+  finGoalsSyncFromReserves();
+  _origRenderFinProjectionV343.apply(this, arguments);
+  const proj = [...container.querySelectorAll('.card')].find(c => /Próximos 12 meses/.test(c.textContent));
+  const html = finGoalsPlanHTML(finProjection(), false);
+  if (proj) proj.insertAdjacentHTML('beforebegin', html); else container.insertAdjacentHTML('beforeend', html);
+};
+// Metas financeiras: resumo da projeção no topo + valor das metas ligadas às reservas sempre atualizado
+const _origRenderFinGoalsV343 = renderFinGoals;
+renderFinGoals = function (container) {
+  finGoalsSyncFromReserves();
+  _origRenderFinGoalsV343.apply(this, arguments);
+  if ((STATE.finGoals || []).some(g => (+g.target || 0) > 0)) {
+    const hdr = container.querySelector('.section-header');
+    const html = finGoalsPlanHTML(finProjection(), true).replace('🎯 Metas financeiras na projeção', '📈 Pela sua projeção')
+      + '';
+    if (hdr) hdr.insertAdjacentHTML('afterend', html); else container.insertAdjacentHTML('afterbegin', html);
+  }
+};
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
