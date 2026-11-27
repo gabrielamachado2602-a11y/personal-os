@@ -8289,7 +8289,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.41.1';
+const APP_VERSION = '3.42.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14337,7 +14337,7 @@ function finVariableAvg() {
   const active = _fMonthsBack(3).filter(ym => STATE.transactions.some(t => t.date && t.date.startsWith(ym) && _fRealized(t)));
   const sums = {};
   STATE.transactions.forEach(t => {
-    if (t.type !== 'expense' || !t.date || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t)
+    if (t.type !== 'expense' || !t.date || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t) || t.fixedHist
         || t.recurrence === 'installment' || FIN_NOT_SPEND.has(t.category)) return;
     if (!active.includes(t.date.slice(0,7))) return;
     const c = t.category || 'outros';
@@ -14512,7 +14512,7 @@ function finAlerts(pr) {
   const ym = _fYm(new Date().getFullYear(), new Date().getMonth());
   const now = {};
   STATE.transactions.forEach(t => {
-    if (t.type !== 'expense' || !t.date || !t.date.startsWith(ym) || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t)
+    if (t.type !== 'expense' || !t.date || !t.date.startsWith(ym) || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t) || t.fixedHist
         || t.recurrence === 'installment' || FIN_NOT_SPEND.has(t.category)) return;
     now[t.category||'outros'] = (now[t.category||'outros']||0) + (+t.amount||0);
   });
@@ -14554,7 +14554,7 @@ function finPlanRowDel(kind, id) {
 }
 function finPlanRowSet(kind, id, field, value) {
   const p = finPlan(); const r = p[kind].find(x => x.id === id); if (!r) return;
-  const nums = ['limit','closeDay','dueDay','balance','cdiPct','amount'];
+  const nums = ['limit','closeDay','dueDay','balance','cdiPct','amount','bankOpen'];
   if (field === 'primary') p[kind].forEach(x => x.primary = (x.id === id));
   else r[field] = nums.includes(field) ? (parseFloat(String(value).replace(',', '.')) || 0) : value;
   save(); _finRerender();
@@ -14647,6 +14647,7 @@ function renderFinProjection(container) {
           ${st.closedPending ? `<br>Fatura fechada: <strong>${fmtBRL(st.closed)}</strong> · vence ${_fDdmm(st.cy.closedDue)}` : ''}
           <br>Compras de hoje entram na fatura que vence em <strong>${_fDdmm(st.cy.openDue)}</strong>.
           ${+c.limit>0 ? `<div class="progress-bar" style="margin-top:4px"><div class="progress-fill" style="width:${Math.min(100,st.pct)}%;background:${st.pct>=90?'var(--danger)':st.pct>=70?'var(--accent)':'var(--success)'}"></div></div><span class="text-muted">${Math.round(st.pct)}% do limite em uso</span>` : ''}
+        ${finCardReconHTML(c, st)}
         </div>
       </div>`; }).join('') : '<div class="text-sm text-muted">Nenhum cartão cadastrado.</div>'}
   </div>`;
@@ -14709,6 +14710,238 @@ renderFinancial = function () {
   }
   return _origRenderFinancialV341.apply(this, arguments);
 };
+
+// ── v3.42.0 — Conferência: filtros nos lançamentos, sugestões de fixos, ações em lote, conferência de fatura ──
+let finTxF = { q:'', type:'all', kind:'all', method:'all', acct:'all', cat:'all', period:'3m' };
+const FIN_TXF_DEFAULT = { q:'', type:'all', kind:'all', method:'all', acct:'all', cat:'all', period:'3m' };
+function _ftNorm(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\d+\s*\/\s*\d+/g, ' ').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function _ftKind(t) {
+  if (t.recurrence === 'installment' || t.installmentTotal) return 'parcelado';
+  if (_fRecurring(t) || t.fixedHist) return 'fixo';
+  if (t.status === 'previsto') return 'previsto';
+  return 'avulso';
+}
+function _ftAcct(t) { return (t.account || '').trim() || '(sem conta)'; }
+function _ftPeriodOk(t) {
+  const p = finTxF.period; if (p === 'all') return true;
+  const d = new Date(), cur = _fYm(d.getFullYear(), d.getMonth()), ym = (t.date || '').slice(0,7);
+  if (p === 'cur') return ym === cur;
+  if (p === 'prev') return ym === _fYm(d.getFullYear(), d.getMonth() - 1);
+  if (p === '3m') return ym >= _fYm(d.getFullYear(), d.getMonth() - 2) && ym <= cur;
+  if (p === 'future') return ym > cur;
+  if (/^\d{4}-\d{2}$/.test(p)) return ym === p;
+  return true;
+}
+function finTxFiltered() {
+  const q = _ftNorm(finTxF.q);
+  return STATE.transactions.filter(t => t.date
+    && (finTxF.type === 'all' || t.type === finTxF.type)
+    && (finTxF.kind === 'all' || _ftKind(t) === finTxF.kind)
+    && (finTxF.method === 'all' || (finTxF.method === '(nenhuma)' ? !t.method : t.method === finTxF.method))
+    && (finTxF.acct === 'all' || _ftAcct(t) === finTxF.acct)
+    && (finTxF.cat === 'all' || t.category === finTxF.cat)
+    && _ftPeriodOk(t)
+    && (!q || _ftNorm(t.desc).includes(q))
+  ).sort((a,b) => b.date.localeCompare(a.date));
+}
+function finTxSet(field, value) { finTxF[field] = value; _finTxRerender(); }
+function finTxReset() { finTxF = { ...FIN_TXF_DEFAULT }; _finTxRerender(); }
+function _finTxRerender() {
+  const c = document.getElementById('fin-view') || document.getElementById('fin-view-sub');
+  if (c && finView === 'transactions') renderFinTransactions(c);
+}
+// Abre a aba Lançamentos já filtrada (usado pela Projeção e pela conferência)
+function finTxGoto(filters) {
+  finTxF = { ...FIN_TXF_DEFAULT, ...(filters || {}) };
+  finView = 'transactions';
+  document.querySelectorAll('.fin-tabs-group .tab').forEach(b => b.classList.toggle('active', /Lançamentos/.test(b.textContent)));
+  renderFinancial();
+  const c = document.getElementById('fin-view') || document.getElementById('fin-view-sub');
+  if (c && c.scrollIntoView) c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Sugestões: o que parece fixo (mesma descrição em 2+ meses, valor parecido, ~1x por mês)
+function finTxSuggestions() {
+  const ignore = new Set(STATE.settings.finIgnoreFixed || []);
+  const groups = {};
+  STATE.transactions.forEach(t => {
+    if (!t.date || _fRecurring(t) || t.fixedHist || t.recurrence === 'installment' || t.installmentTotal
+        || t.status === 'previsto' || t.projected) return;
+    const n = _ftNorm(t.desc); if (!n) return;
+    const k = t.type + '|' + n; if (ignore.has(k)) return;
+    (groups[k] = groups[k] || []).push(t);
+  });
+  const fixed = [];
+  Object.entries(groups).forEach(([k, arr]) => {
+    const months = new Set(arr.map(t => t.date.slice(0,7)));
+    if (months.size < 2 || arr.length / months.size > 1.5) return;
+    const amts = arr.map(t => +t.amount || 0), avg = amts.reduce((a,b) => a + b, 0) / amts.length;
+    if (avg <= 0 || !amts.every(a => Math.abs(a - avg) <= avg * 0.15)) return;
+    arr.sort((a,b) => b.date.localeCompare(a.date));
+    fixed.push({ key: k, desc: arr[0].desc, type: arr[0].type, n: months.size, avg, ids: arr.map(t => t.id) });
+  });
+  return {
+    fixed: fixed.sort((a,b) => b.avg - a.avg),
+    creditNoAcct: STATE.transactions.filter(t => t.method === 'credito' && !(t.account || '').trim() && !t.projected).length,
+    noMethod: STATE.transactions.filter(t => t.type === 'expense' && !t.method && !t.projected).length
+  };
+}
+// Marca o grupo como fixo: o mais recente vira a recorrência mensal; os antigos ficam como histórico do fixo
+// (não entram na média de variáveis e não geram projeções duplicadas).
+function finTxConfirmFixed(key) {
+  const s = finTxSuggestions().fixed.find(x => x.key === key); if (!s) return;
+  const items = s.ids.map(id => STATE.transactions.find(t => t.id === id)).filter(Boolean).sort((a,b) => b.date.localeCompare(a.date));
+  items.forEach((t, i) => { if (i === 0) { t.recurrence = 'monthly'; t.fixedHist = false; } else t.fixedHist = true; t.updatedAt = Date.now(); });
+  save(); toast(`↻ "${s.desc}" agora é fixo mensal`); renderFinancial();
+}
+function finTxIgnoreFixed(key) {
+  if (!Array.isArray(STATE.settings.finIgnoreFixed)) STATE.settings.finIgnoreFixed = [];
+  STATE.settings.finIgnoreFixed.push(key); save(); renderFinancial();
+}
+function finTxToggleFixed(id) {
+  const t = STATE.transactions.find(x => x.id === id); if (!t) return;
+  if (_fRecurring(t) || t.fixedHist) { t.recurrence = 'none'; t.fixedHist = false; toast('Deixou de ser fixo'); }
+  else { t.recurrence = 'monthly'; toast('↻ Marcado como fixo mensal'); }
+  t.updatedAt = Date.now(); save(); renderFinancial();
+}
+function finTxBulk(field) {
+  const el = document.getElementById('fintx-bulk-' + field); const v = el ? el.value.trim() : '';
+  if (!v) { toast('Escolha o valor a aplicar', true); return; }
+  const list = finTxFiltered().filter(t => !t.projected);
+  if (!list.length) return;
+  const label = { account:'conta/cartão', method:'forma de pagamento', category:'categoria' }[field];
+  if (!confirm(`Mudar a ${label} de ${list.length} lançamento(s) filtrado(s)?`)) return;
+  list.forEach(t => { t[field] = (field === 'account' && v === '(sem conta)') ? '' : v; t.updatedAt = Date.now(); });
+  save(); toast(`✓ ${list.length} lançamento(s) atualizados`); renderFinancial();
+}
+
+const _origTxnRowV342 = txnRow;
+txnRow = function (t, withDelete) {
+  let h = _origTxnRowV342(t, withDelete);
+  if (!t.projected) {
+    const on = _fRecurring(t) || t.fixedHist;
+    h = h.replace(`<button class="btn-icon" onclick="editTransaction('${t.id}')">✎</button>`,
+      `<button class="btn-icon" title="${on ? 'Deixar de ser fixo' : 'Marcar como fixo (mensal)'}" onclick="finTxToggleFixed('${t.id}')" style="${on ? 'color:var(--accent)' : 'opacity:.55'}">↻</button><button class="btn-icon" onclick="editTransaction('${t.id}')">✎</button>`);
+  }
+  if (t.fixedHist) h = h.replace('<div class="item-meta">', '<div class="item-meta"><span class="chip" title="Ocorrência antiga de um gasto fixo">↻ Fixo (histórico)</span>');
+  return h;
+};
+
+const _origRenderFinTransactionsV342 = renderFinTransactions;
+renderFinTransactions = function (container) {
+  if (!STATE.transactions.length) return _origRenderFinTransactionsV342(container);
+  const list = finTxFiltered();
+  const sug = finTxSuggestions();
+  const accts = [...new Set(STATE.transactions.map(_ftAcct))].sort();
+  const cardNames = (finPlan().cards || []).map(c => (c.name || '').trim()).filter(Boolean);
+  const monthsHave = [...new Set(STATE.transactions.filter(t => t.date).map(t => t.date.slice(0,7)))].sort().reverse();
+  const sel = (field, opts) => `<select class="form-select" style="padding:4px 8px;font-size:.8rem;width:auto" onchange="finTxSet('${field}',this.value)">${opts.map(([v,l]) => `<option value="${_esc(v)}" ${finTxF[field] === v ? 'selected' : ''}>${_esc(l)}</option>`).join('')}</select>`;
+  const exp = list.filter(t => t.type === 'expense').reduce((s,t) => s + (+t.amount || 0), 0);
+  const inc = list.filter(t => t.type === 'income').reduce((s,t) => s + (+t.amount || 0), 0);
+  const isFiltered = JSON.stringify(finTxF) !== JSON.stringify(FIN_TXF_DEFAULT);
+
+  const filters = `<div class="card mb-3" style="padding:12px">
+    <div class="flex gap-2" style="flex-wrap:wrap;align-items:center">
+      <input class="form-input" style="padding:4px 8px;font-size:.8rem;width:170px" placeholder="🔎 Buscar descrição" value="${_esc(finTxF.q)}" onchange="finTxSet('q',this.value)">
+      ${sel('period', [['3m','Últimos 3 meses'],['cur','Este mês'],['prev','Mês passado'],['future','Futuros (previstos)'],['all','Tudo'], ...monthsHave.map(m => [m, _fYmLabel(m)])])}
+      ${sel('type', [['all','Receitas e despesas'],['expense','Despesas'],['income','Receitas']])}
+      ${sel('kind', [['all','Fixos e variáveis'],['fixo','↻ Só fixos'],['avulso','Só variáveis (avulsos)'],['parcelado','Parcelados'],['previsto','Previstos']])}
+      ${sel('method', [['all','Toda forma de pgto.'],['credito','Crédito'],['pix','Pix'],['debito','Débito'],['beneficios','Benefícios (VR/VA)'],['dinheiro','Dinheiro'],['boleto','Boleto'],['(nenhuma)','Sem forma de pgto.']])}
+      ${sel('acct', [['all','Toda conta/cartão'], ...accts.map(a => [a, a])])}
+      ${sel('cat', [['all','Toda categoria'], ...Object.keys(CAT_LABELS).map(c => [c, _catLabel(c)])])}
+      ${isFiltered ? `<button class="btn btn-ghost btn-sm" onclick="finTxReset()">Limpar filtros</button>` : ''}
+    </div>
+    <div class="text-sm mt-2"><strong>${list.length}</strong> lançamento(s) · despesas <strong style="color:var(--danger)">${fmtBRL(exp)}</strong> · receitas <strong style="color:var(--success)">${fmtBRL(inc)}</strong></div>
+    ${list.length ? `<details class="mt-2"><summary class="text-xs" style="cursor:pointer;color:var(--text2)">✎ Corrigir todos os ${list.length} filtrados de uma vez</summary>
+      <div class="flex gap-2 mt-2" style="flex-wrap:wrap;align-items:center">
+        <datalist id="fintx-acct-list">${[...new Set([...cardNames, ...accts])].map(a => `<option value="${_esc(a)}">`).join('')}</datalist>
+        <input id="fintx-bulk-account" list="fintx-acct-list" class="form-input" style="padding:4px 8px;font-size:.8rem;width:140px" placeholder="Conta/cartão">
+        <button class="btn btn-ghost btn-sm" onclick="finTxBulk('account')">Aplicar conta</button>
+        <select id="fintx-bulk-method" class="form-select" style="padding:4px 8px;font-size:.8rem;width:auto"><option value="">Forma de pgto.</option>${['credito','pix','debito','beneficios','dinheiro','boleto'].map(m => `<option value="${m}">${methodLabel(m)}</option>`).join('')}</select>
+        <button class="btn btn-ghost btn-sm" onclick="finTxBulk('method')">Aplicar forma</button>
+        <select id="fintx-bulk-category" class="form-select" style="padding:4px 8px;font-size:.8rem;width:auto"><option value="">Categoria</option>${Object.keys(CAT_LABELS).map(c => `<option value="${c}">${_catLabel(c)}</option>`).join('')}</select>
+        <button class="btn btn-ghost btn-sm" onclick="finTxBulk('category')">Aplicar categoria</button>
+      </div></details>` : ''}
+  </div>`;
+
+  const tips = [];
+  if (sug.creditNoAcct) tips.push(`<div class="text-sm" style="padding:5px 0;border-bottom:1px solid var(--border)">💳 <strong>${sug.creditNoAcct}</strong> compra(s) no crédito sem cartão no campo Conta — elas vão todas para o cartão principal. <button class="btn btn-ghost btn-sm" onclick="finTxGoto({method:'credito',acct:'(sem conta)',period:'all'})">Ver e corrigir</button></div>`);
+  if (sug.noMethod) tips.push(`<div class="text-sm" style="padding:5px 0;border-bottom:1px solid var(--border)">❔ <strong>${sug.noMethod}</strong> despesa(s) sem forma de pagamento (não dá para saber se foi crédito, Pix ou VR). <button class="btn btn-ghost btn-sm" onclick="finTxGoto({type:'expense',method:'(nenhuma)',period:'all'})">Ver e corrigir</button></div>`);
+  sug.fixed.slice(0, 6).forEach(s => tips.push(`<div class="text-sm flex items-center justify-between" style="gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+    <span>↻ <strong>${_esc(s.desc)}</strong> aparece em ${s.n} meses com valor parecido (~${fmtBRL(s.avg)}). É ${s.type === 'income' ? 'uma receita' : 'um gasto'} fixo?</span>
+    <span class="flex gap-1"><button class="btn btn-primary btn-sm" onclick="finTxConfirmFixed('${_esc(s.key).replace(/'/g,'&#39;')}')">Sim, é fixo</button><button class="btn btn-ghost btn-sm" onclick="finTxIgnoreFixed('${_esc(s.key).replace(/'/g,'&#39;')}')">Não</button></span></div>`));
+  if (sug.fixed.length > 6) tips.push(`<div class="text-xs text-muted" style="padding:5px 0">+ ${sug.fixed.length - 6} outra(s) sugestão(ões) depois destas.</div>`);
+  const tipsHTML = tips.length ? `<div class="card mb-3"><div class="font-semibold mb-1">🧹 Conferência rápida</div><div class="text-xs text-muted mb-1">O app aponta o que provavelmente precisa de ajuste — você só confirma. O botão ↻ em cada lançamento liga/desliga "fixo".</div>${tips.join('')}</div>` : '';
+
+  const groups = {};
+  list.forEach(t => { const k = t.date.slice(0,7); (groups[k] = groups[k] || []).push(t); });
+  const MESES_L = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const body = list.length ? Object.entries(groups).map(([k, items]) => {
+    const [y, m] = k.split('-');
+    const e = items.filter(t => t.type === 'expense').reduce((s,t) => s + (+t.amount || 0), 0);
+    return `<div style="margin-bottom:20px">
+      <div class="text-xs font-semibold text-muted mb-2 flex justify-between" style="text-transform:uppercase;letter-spacing:.04em"><span>${MESES_L[+m - 1]} ${y}</span><span style="text-transform:none">despesas ${fmtBRL(e)}</span></div>
+      <div class="card" style="padding:0 16px">${items.map(t => txnRow(t, true)).join('')}</div></div>`;
+  }).join('') : `<div class="text-sm text-muted text-center" style="padding:24px">Nenhum lançamento com esses filtros.</div>`;
+
+  container.innerHTML = tipsHTML + filters + `<div id="txn-list">${body}</div>`;
+};
+
+// ── Conferência de fatura: inclui recorrências no crédito e lista o que compõe cada fatura ──
+function _fCardItems(card, cards, from, to) {
+  const tx = _fCardTxns(card, cards);
+  const fromS = _fDs(from), toS = _fDs(to);
+  const items = tx.filter(t => t.date >= fromS && t.date < toS).map(t => ({ t, date: t.date, desc: t.desc, amount: +t.amount || 0 }));
+  // Recorrências mensais no crédito: a ocorrência do ciclo entra se ainda não foi lançada
+  tx.filter(t => t.recurrence === 'monthly').forEach(t => {
+    const day = +t.date.slice(8,10);
+    for (let d = new Date(from.getFullYear(), from.getMonth(), 1); d <= to; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      const occ = new Date(d.getFullYear(), d.getMonth(), _fClamp(d.getFullYear(), d.getMonth(), day));
+      const occS = _fDs(occ);
+      if (occS < fromS || occS >= toS || occS <= t.date) continue;
+      if (t.recurUntil && occS > t.recurUntil) continue;
+      const n = _ftNorm(t.desc);
+      if (items.some(x => _ftNorm(x.desc) === n)) continue;
+      items.push({ t, date: occS, desc: t.desc, amount: +t.amount || 0, virtual: true });
+    }
+  });
+  return items.sort((a,b) => a.date.localeCompare(b.date));
+}
+cardStatus = function (card, cards) {
+  const cy = cardCycle(card);
+  const openItems = _fCardItems(card, cards, cy.lastClose, cy.nextClose);
+  const closedItems = _fCardItems(card, cards, cy.prevClose, cy.lastClose);
+  const sum = a => a.reduce((s,x) => s + x.amount, 0);
+  const open = sum(openItems), closed = sum(closedItems);
+  const closedPending = cy.closedDue >= cy.today;
+  const used = open + (closedPending ? closed : 0);
+  return { cy, open, closed, openItems, closedItems, closedPending, used, pct: +card.limit > 0 ? used / +card.limit * 100 : 0 };
+};
+function finCardReconHTML(c, st) {
+  const rows = items => items.length ? items.map(x => `<div class="flex justify-between text-xs" style="padding:3px 0;border-bottom:1px dashed var(--border);gap:8px">
+      <span style="min-width:44px">${_fDdmm(new Date(x.date + 'T12:00:00'))}</span>
+      <span style="flex:1">${_esc(x.desc)}${x.virtual ? ' <span class="text-muted">(↻ fixo previsto)</span>' : ''}</span>
+      <span style="font-variant-numeric:tabular-nums">${fmtBRL(x.amount)}</span>
+      ${x.virtual ? '' : `<button class="btn-icon" style="font-size:.7rem" title="Editar" onclick="editTransaction('${x.t.id}')">✎</button>`}</div>`).join('') : '<div class="text-xs text-muted">Nada lançado neste período.</div>';
+  const bank = +c.bankOpen > 0 ? +c.bankOpen : null;
+  const diff = bank != null ? bank - st.open : null;
+  return `<details class="mt-1"><summary class="text-xs" style="cursor:pointer;color:var(--text2)">🔍 Conferir com o app do banco</summary>
+    <div style="padding:6px 0 2px">
+      <div class="text-xs font-semibold mb-1">Fatura aberta (de ${_fDdmm(st.cy.lastClose)} até ${_fDdmm(new Date(st.cy.nextClose.getTime() - 864e5))})</div>
+      ${rows(st.openItems)}
+      ${st.closedPending ? `<div class="text-xs font-semibold mb-1 mt-2">Fatura fechada (vence ${_fDdmm(st.cy.closedDue)})</div>${rows(st.closedItems)}` : ''}
+      <div class="flex gap-2 mt-2" style="align-items:center;flex-wrap:wrap"><span class="text-xs">Valor da fatura aberta no app do banco:</span>
+        <span style="width:100px"><input class="form-input" style="padding:4px 8px;font-size:.8rem" inputmode="decimal" value="${bank != null ? bank : ''}" onchange="finPlanRowSet('cards','${c.id}','bankOpen',this.value)"></span></div>
+      ${diff != null ? (Math.abs(diff) < 0.01
+        ? `<div class="text-xs mt-1" style="color:var(--success)">✓ Bate com o banco.</div>`
+        : `<div class="text-xs mt-1" style="color:var(--accent)">${diff > 0 ? `Faltam <strong>${fmtBRL(diff)}</strong> no app: compras não lançadas, lançadas sem forma "Crédito" ou em outro cartão.` : `O app tem <strong>${fmtBRL(-diff)}</strong> a mais: compra de outro cartão caindo aqui, lançamento duplicado ou de outra fatura.`}
+          <button class="btn btn-ghost btn-sm" onclick="finTxGoto({method:'credito',period:'all'})">Ver compras no crédito</button></div>`) : ''}
+      <div class="text-xs text-muted mt-1">Regra usada: compra feita no dia do fechamento já vai para a fatura seguinte.</div>
+    </div></details>`;
+}
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
