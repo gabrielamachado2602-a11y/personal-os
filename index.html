@@ -916,7 +916,6 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
       <button class="tab active" onclick="switchFinView('overview',this)">Visão geral</button>
       <button class="tab" onclick="switchFinView('projection',this)">Projeção</button>
       <button class="tab" onclick="switchFinView('transactions',this)">Lançamentos</button>
-      <button class="tab" onclick="switchFinView('recurring',this)">Recorrências</button>
       <button class="tab" onclick="switchFinView('goals',this)">Metas financeiras</button>
     </div>
 
@@ -7465,7 +7464,7 @@ function renderFinOverview(container) {
     <div class="card mt-4">
       <div class="section-header" style="margin-bottom:12px">
         <div class="font-semibold">Metas financeiras</div>
-        <button class="btn btn-ghost btn-sm" onclick="switchFinView('goals', document.querySelectorAll('.fin-tabs-group .tab')[4])">Ver todas</button>
+        <button class="btn btn-ghost btn-sm" onclick="switchFinView('goals', document.querySelectorAll('.fin-tabs-group .tab')[3])">Ver todas</button>
       </div>
       ${finGoalsSummary}
     </div>` : ''}
@@ -7684,7 +7683,7 @@ function finGoalProjectionHTML(g) {
       <strong style="color:${p.pmtNeeded<=p.PMT?'var(--success)':'var(--accent-amber)'}">${fmtBRL(p.pmtNeeded)}/mês</strong>
       ${p.PMT>0 ? `<span class="text-xs text-muted"> — ${p.pmtNeeded<=p.PMT?'seu aporte atual já é suficiente ✓':`faltam ${fmtBRL(p.pmtNeeded-p.PMT)}/mês`}</span>` : ''}
     </div>` : ''}
-    ${atingeMeta !== null ? `<div class="text-xs mt-2" style="color:${atingeMeta?'var(--success)':'var(--accent-amber)'}">${atingeMeta?'✓ No ritmo atual, a meta é atingida no prazo.':'⚠ No ritmo atual, a meta não é atingida no prazo.'}</div>` : ''}
+    ${atingeMeta !== null ? `<div class="text-xs mt-2" style="color:${atingeMeta?'var(--success)':'var(--accent-amber)'}">${atingeMeta?`✓ Com o aporte cadastrado nesta meta (${fmtBRL(p.PMT)}/mês), ela é atingida no prazo.`:`⚠ Com o aporte cadastrado nesta meta (${fmtBRL(p.PMT)}/mês), ela não é atingida no prazo.`}</div>` : ''}
     ${chart}
     <div class="text-xs text-muted mt-2" style="font-style:italic">Premissa: rendimento de ${(p.annual*100).toLocaleString('pt-BR',{maximumFractionDigits:2})}% a.a. convertido a ${(p.i*100).toLocaleString('pt-BR',{maximumFractionDigits:3})}% a.m., aportes ao fim de cada mês. Rentabilidade futura não é garantida.</div>
   </div>`;
@@ -8289,7 +8288,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.43.0';
+const APP_VERSION = '3.44.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -9357,7 +9356,6 @@ function renderSubAreaPage(subId) {
         <button class="tab active" onclick="switchFinView('overview',this)">Visão geral</button>
       <button class="tab" onclick="switchFinView('projection',this)">Projeção</button>
         <button class="tab" onclick="switchFinView('transactions',this)">Lançamentos</button>
-        <button class="tab" onclick="switchFinView('recurring',this)">Recorrências</button>
         <button class="tab" onclick="switchFinView('goals',this)">Metas financeiras</button>
       </div>
       <div id="fin-view-sub"></div>
@@ -14506,7 +14504,7 @@ function finAlerts(pr) {
     out.push({ sev:'info', txt:`A média dos gastos variáveis usa só ${pr.vr.months} mês(es). Fica mais confiável com 3 meses de lançamentos.` });
   if (!(+p.netSalary > 0)) out.push({ sev:'warn', txt:'Informe o salário líquido em "Seu perfil financeiro" — sem ele a projeção não tem entrada.' });
   if (+p.savingsTarget > 0 && pr.baseSobra < +p.savingsTarget)
-    out.push({ sev:'warn', txt:`No ritmo atual sobram ${fmtBRL(pr.baseSobra)} por mês — ${fmtBRL(+p.savingsTarget - pr.baseSobra)} abaixo da sua meta de poupança.` });
+    out.push({ sev:'warn', txt:`Sua meta de poupança é ${fmtBRL(+p.savingsTarget)}/mês, mas no mês típico sobram ${fmtBRL(pr.baseSobra)} — faltam ${fmtBRL(+p.savingsTarget - pr.baseSobra)}.` });
   if (pr.baseSobra < 0) out.push({ sev:'crit', txt:`Seu custo de vida estimado é maior que a entrada: faltam ${fmtBRL(-pr.baseSobra)} por mês. A reserva cobriria essa diferença.` });
   // Categoria do mês atual que já passou da média
   const ym = _fYm(new Date().getFullYear(), new Date().getMonth());
@@ -15066,6 +15064,216 @@ renderFinGoals = function (container) {
       + '';
     if (hdr) hdr.insertAdjacentHTML('afterend', html); else container.insertAdjacentHTML('afterbegin', html);
   }
+};
+
+// ── v3.44.0 — Projeção simplificada e com uma fonte só de números ──
+// Regra: o "mês típico" da Projeção usa os MESMOS lançamentos que a Visão geral mostra para o mês seguinte
+// (getMonthTxns), e cada número tem a lista do que o compõe.
+
+// Visão geral passa a projetar também recorrências semanais e anuais (antes só mensais)
+const _origGetMonthTxnsV344 = getMonthTxns;
+getMonthTxns = function (month, year) {
+  const real = _origGetMonthTxnsV344(month, year);
+  const now = new Date();
+  if (new Date(year, month, 1) <= new Date(now.getFullYear(), now.getMonth(), 1)) return real;
+  const prefix = `${year}-${String(month + 1).padStart(2,'0')}`;
+  const last = new Date(year, month + 1, 0).getDate();
+  STATE.transactions.filter(t => (t.recurrence === 'weekly' || t.recurrence === 'annual') && t.date).forEach(t => {
+    const td = new Date(t.date + 'T00:00:00');
+    if (td >= new Date(year, month + 1, 1)) return;
+    if (t.recurUntil && t.recurUntil < prefix + '-01') return;
+    if (t.recurrence === 'annual') {
+      if (td.getMonth() !== month || td.getFullYear() === year) return;
+      if (real.some(r => r.desc === t.desc && r.type === t.type)) return;
+      real.push({ ...t, id: `proj-${t.id}-${prefix}`, date: `${prefix}-${String(Math.min(td.getDate(), last)).padStart(2,'0')}`, projected: true });
+      return;
+    }
+    for (let day = 1; day <= last; day++) {
+      const dd = new Date(year, month, day);
+      if (dd.getDay() !== td.getDay() || dd <= td) continue;
+      const ds = `${prefix}-${String(day).padStart(2,'0')}`;
+      if (real.some(r => r.desc === t.desc && r.amount === t.amount && r.type === t.type && r.date === ds)) continue;
+      real.push({ ...t, id: `proj-${t.id}-${ds}`, date: ds, projected: true });
+    }
+  });
+  return real;
+};
+
+// Fixos e receitas fixas de um mês futuro = exatamente o que a Visão geral mostra para aquele mês
+function finMonthItems(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const tx = getMonthTxns(m - 1, y).filter(t => !isBenefitTxn(t));
+  const isFix = t => t.projected || t.status === 'previsto' || t.recurrence === 'installment' || _fRecurring(t);
+  return { exp: tx.filter(t => t.type === 'expense' && isFix(t)), inc: tx.filter(t => t.type === 'income' && isFix(t)) };
+}
+const _fSum = a => a.reduce((s,t) => s + (+t.amount || 0), 0);
+const _fSrcId = t => String(t.id).startsWith('proj-') ? String(t.id).replace(/^proj-/, '').replace(/-\d{4}-\d{2}(-\d{2})?$/, '') : t.id;
+
+finProjection = function () {
+  const p = finPlan();
+  const vr = finVariableAvg();
+  const reserveTotal = p.reserves.reduce((s,r) => s + (+r.balance || 0), 0);
+  const rate = reserveTotal > 0
+    ? p.reserves.reduce((s,r) => s + (+r.balance || 0) * _fNetMonthlyRate(r.cdiPct), 0) / reserveTotal
+    : _fNetMonthlyRate(100);
+  const extraAvg = finExtraAvg();
+  const extra = p.extraMode === 'avg' ? extraAvg : 0;
+  const calc = (ym, withEvents) => {
+    const it = finMonthItems(ym);
+    const incItems = it.inc.filter(t => !(+p.netSalary > 0 && t.category === 'salario'));
+    const ev = withEvents ? p.events.filter(e => e.month === ym) : [];
+    const evIn = ev.filter(e => e.type !== 'expense').reduce((s,e) => s + (+e.amount || 0), 0);
+    const evOut = ev.filter(e => e.type === 'expense').reduce((s,e) => s + (+e.amount || 0), 0);
+    const income = (+p.netSalary || 0) + _fSum(incItems) + extra + evIn;
+    const outFix = _fSum(it.exp) + evOut;
+    return { ym, income, outFix, outVar: vr.total, sobra: income - outFix - vr.total, incItems, fixItems: it.exp, ev };
+  };
+  const d = new Date();
+  const base = calc(_fYm(d.getFullYear(), d.getMonth() + 1), false);
+  const rows = [];
+  let sA = reserveTotal, sM = reserveTotal, sC = reserveTotal;
+  for (let i = 1; i <= 12; i++) {
+    const r = calc(_fYm(d.getFullYear(), d.getMonth() + i), true);
+    const evNet = r.ev.reduce((s,e) => s + (e.type === 'expense' ? -1 : 1) * (+e.amount || 0), 0);
+    sA = sA * (1 + rate) + r.sobra;
+    sM = sM * (1 + rate) + (+p.savingsTarget || 0) + evNet;
+    sC = sC * (1 + rate) + r.sobra + r.outVar * ((+p.cutPct || 0) / 100);
+    rows.push({ ...r, sA, sM, sC });
+  }
+  return { p, vr, rows, reserveTotal, rate, extraAvg, extra, base,
+    baseIncome: base.income, baseFixed: { total: base.outFix, items: base.fixItems }, baseCost: base.outFix + vr.total, baseSobra: base.sobra };
+};
+
+// Metas: UM cálculo só, o mesmo da aba Metas financeiras (finGoalProjection: rendimento e prazo da própria meta)
+function _fSimGoalsOwnRate(goals, monthly) {
+  const rates = goals.map(g => { const a = (+g.annualRate || 0) / 100; return a > 0 ? Math.pow(1 + a, 1/12) - 1 : 0; });
+  const bal = goals.map(g => +g.current || 0);
+  const hit = goals.map((g, i) => bal[i] >= (+g.target || 0) ? 0 : null);
+  for (let m = 1; m <= 36 && hit.some(h => h === null); m++) {
+    for (let i = 0; i < goals.length; i++) bal[i] *= (1 + rates[i]);
+    let left = Math.max(0, monthly);
+    for (let i = 0; i < goals.length && left > 0; i++) {
+      if (hit[i] !== null) continue;
+      const put = Math.min((+goals[i].target || 0) - bal[i], left); bal[i] += put; left -= put;
+    }
+    for (let i = 0; i < goals.length; i++) if (hit[i] === null && bal[i] >= (+goals[i].target || 0) - 0.01) hit[i] = m;
+  }
+  return hit;
+}
+function finGoalsStatus(pr) {
+  finGoalsSyncFromReserves();
+  const goals = (STATE.finGoals || []).filter(g => (+g.target || 0) > 0)
+    .slice().sort((a,b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
+  const hits = _fSimGoalsOwnRate(goals, pr.baseSobra);
+  return goals.map((g, i) => { const gp = finGoalProjection(g); return { g, need: gp.pmtNeeded, n: gp.n, hit: hits[i] }; });
+}
+function _fHitText(hit, n) {
+  if (hit === 0) return '<span style="color:var(--success)">✓ já atingida</span>';
+  if (hit == null) return '<span style="color:var(--danger)">não chega em 3 anos nesse ritmo</span>';
+  const d = new Date(), lbl = _fYmLabel(_fYm(d.getFullYear(), d.getMonth() + hit));
+  if (!n) return `chega em <strong>${lbl}</strong>`;
+  return hit <= n ? `chega em <strong>${lbl}</strong> <span style="color:var(--success)">· dentro do prazo</span>`
+                  : `chega em <strong>${lbl}</strong> <span style="color:var(--accent)">· ${hit - n} ${hit - n > 1 ? 'meses' : 'mês'} depois do prazo</span>`;
+}
+
+// ── Tela da Projeção, enxuta ──
+renderFinProjection = function (container) {
+  finGoalsSyncFromReserves();
+  const pr = finProjection(), p = pr.p, b = pr.base;
+  const last = pr.rows[pr.rows.length - 1];
+  const inp = (val, on, extra='') => `<input class="form-input" style="padding:4px 8px;font-size:.8rem" value="${val===0?'0':_esc(val)}" onchange="${on}" ${extra}>`;
+  const nextLbl = _fYmLabel(b.ym);
+  const sobraCol = b.sobra < 0 ? 'var(--danger)' : (+p.savingsTarget > 0 && b.sobra < +p.savingsTarget ? 'var(--accent)' : 'var(--success)');
+  const big = (label, val, sub, col) => `<div class="card" style="padding:14px"><div class="stat-label">${label}</div><div class="stat-value" style="font-size:1.5rem${col ? `;color:${col}` : ''}">${val}</div>${sub ? `<div class="text-xs text-muted">${sub}</div>` : ''}</div>`;
+
+  const head = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px">
+      ${big('Entra por mês', fmtBRL(b.income), 'salário + receitas fixas')}
+      ${big('Sai por mês', fmtBRL(b.outFix + b.outVar), `fixos ${fmtBRL(b.outFix)} + variáveis ${fmtBRL(b.outVar)}`)}
+      ${big('Sobra por mês', fmtBRL(b.sobra), +p.savingsTarget > 0 ? `sua meta de poupança: ${fmtBRL(+p.savingsTarget)}` : 'defina sua meta de poupança no perfil', sobraCol)}
+    </div>
+    <div class="text-sm mb-3">Mês típico calculado com ${nextLbl} (o que já está lançado para ele + a média dos seus variáveis).
+      ${pr.reserveTotal > 0 ? ` Nesse ritmo, sua reserva vai de <strong>${fmtBRL(pr.reserveTotal)}</strong> hoje para <strong>${fmtBRL(last.sA)}</strong> em ${_fYmLabel(last.ym)}.` : ''}</div>`;
+
+  const alerts = finAlerts(pr).filter(a => a.sev !== 'info' || /meses completos|só \d/.test(a.txt)).slice(0, 3);
+  const alertsHTML = alerts.length ? `<div class="card mb-3" style="padding:12px">${alerts.map(a => `<div class="text-sm" style="padding:3px 0;color:${a.sev === 'crit' ? 'var(--danger)' : a.sev === 'warn' ? 'var(--accent)' : 'var(--text2)'}">${a.sev === 'crit' ? '⛔' : a.sev === 'warn' ? '⚠' : 'ℹ'} ${a.txt}</div>`).join('')}</div>` : '';
+
+  const gs = finGoalsStatus(pr);
+  const goalsHTML = gs.length ? `<div class="card mb-3"><div class="font-semibold mb-1">🎯 Suas metas</div>
+    ${gs.map(x => `<div class="text-sm" style="padding:6px 0;border-bottom:1px solid var(--border)">
+      <strong>${_esc(x.g.name)}</strong> · faltam ${fmtBRL(Math.max(0, (+x.g.target) - (+x.g.current || 0)))}
+      ${x.need != null && x.need > 0 ? ` · para o prazo: <strong>${fmtBRL(x.need)}/mês</strong>` : ''}<br>
+      <span class="text-xs">Com a sobra de ${fmtBRL(b.sobra)}/mês: ${_fHitText(x.hit, x.n)}</span></div>`).join('')}
+    ${gs.length > 1 ? '<div class="text-xs text-muted mt-1">A sobra vai primeiro para a meta de prazo mais próximo.</div>' : ''}
+    <div class="text-xs text-muted mt-1">O valor por mês é o mesmo da aba Metas financeiras (usa o rendimento cadastrado em cada meta).</div></div>` : '';
+
+  // De onde vêm os números
+  const line = (l, v, extra='') => `<div class="flex justify-between text-sm" style="padding:3px 0;gap:8px"><span>${l}</span><span style="display:flex;gap:6px;align-items:center;font-variant-numeric:tabular-nums">${fmtBRL(v)}${extra}</span></div>`;
+  const kindL = t => t.recurrence === 'installment' || t.installmentTotal ? 'parcela' : t.recurrence === 'weekly' ? 'semanal' : t.recurrence === 'annual' ? 'anual' : t.status === 'previsto' && !t.projected ? 'previsto' : 'mensal';
+  const fixGroups = {};
+  b.fixItems.forEach(t => { const src = _fSrcId(t); const k = src + '|' + kindL(t); (fixGroups[k] = fixGroups[k] || { t, src, n: 0, v: 0 }); fixGroups[k].n++; fixGroups[k].v += +t.amount || 0; });
+  const fixRows = Object.values(fixGroups).sort((a,c) => c.v - a.v).map(g => line(`${_esc(g.t.desc)} <span class="text-xs text-muted">(${kindL(g.t)}${g.n > 1 ? ` ×${g.n}` : ''})</span>`, g.v,
+    STATE.transactions.some(t => t.id === g.src) ? `<button class="btn-icon" style="font-size:.75rem" title="Editar" onclick="editTransaction('${g.src}')">✎</button><button class="btn-icon" style="font-size:.75rem" title="Não é fixo — tirar daqui" onclick="finTxToggleFixed('${g.src}')">✕</button>` : '')).join('');
+  const usedCats = new Set(Object.keys(pr.vr.byCat));
+  const catOpts = Object.keys(CAT_LABELS).filter(c => !usedCats.has(c) && !['salario','freelance','investimento'].includes(c)).map(c => `<option value="${c}">${_catLabel(c)}</option>`).join('');
+  const varRows = Object.entries(pr.vr.byCat).sort((a,c) => c[1].value - a[1].value).map(([c, x]) => `<div class="flex justify-between items-center text-sm" style="padding:3px 0;gap:8px">
+      <span>${_catLabel(c)} <span class="text-xs text-muted">${x.manual != null ? '(sua estimativa)' : `(média ${pr.vr.months} ${pr.vr.months === 1 ? 'mês' : 'meses'})`}</span></span>
+      <span class="flex items-center gap-1"><span style="width:96px">${inp(x.manual ?? '', `finPlanVarSet('${c}',this.value)`, `placeholder="${fmtBRL(x.avg).replace('R$','').trim()}" inputmode="decimal" title="Sua estimativa (vazio = média)"`)}</span>
+        <span style="min-width:90px;text-align:right;font-variant-numeric:tabular-nums">${fmtBRL(x.value)}</span></span></div>`).join('');
+  const breakdown = `<details class="card mb-3"><summary class="font-semibold" style="cursor:pointer">🧾 De onde vêm esses números</summary>
+    <div class="text-xs font-semibold mt-3 mb-1" style="color:var(--success)">ENTRA · ${fmtBRL(b.income)}</div>
+    ${+p.netSalary > 0 ? line('Salário líquido <span class="text-xs text-muted">(do seu perfil)</span>', +p.netSalary) : '<div class="text-sm" style="color:var(--accent)">Salário líquido não informado — preencha em "Perfil e reservas".</div>'}
+    ${b.incItems.map(t => line(`${_esc(t.desc)} <span class="text-xs text-muted">(${kindL(t)})</span>`, +t.amount || 0)).join('')}
+    ${pr.extra > 0 ? line('Renda extra <span class="text-xs text-muted">(média de 6 meses)</span>', pr.extra) : ''}
+    <div class="text-xs font-semibold mt-3 mb-1" style="color:var(--danger)">FIXOS · ${fmtBRL(b.outFix)}</div>
+    <div class="text-xs text-muted mb-1">Exatamente o que está lançado/recorrente para ${nextLbl} — o mesmo que a Visão geral mostra nesse mês. ✕ tira o item dos fixos.</div>
+    ${fixRows || '<div class="text-sm text-muted">Nenhum gasto fixo lançado para esse mês.</div>'}
+    <div class="text-xs font-semibold mt-3 mb-1" style="color:var(--danger)">VARIÁVEIS · ${fmtBRL(b.outVar)}</div>
+    <div class="text-xs text-muted mb-1">Gastos avulsos fora do VR/VA, média por mês. Digite um valor para usar sua estimativa; apague para voltar à média.</div>
+    ${varRows || '<div class="text-sm text-muted">Sem gastos variáveis lançados.</div>'}
+    <div class="flex gap-2 mt-1" style="align-items:center"><select class="form-select" id="finvar-newcat" style="max-width:220px;padding:4px 8px;font-size:.8rem"><option value="">+ estimar outra categoria</option>${catOpts}</select><button class="btn btn-ghost btn-sm" onclick="finPlanVarAdd()">Adicionar</button></div>
+    <div class="flex justify-between text-sm mt-3" style="border-top:1px solid var(--border);padding-top:6px"><strong>SOBRA</strong><strong style="color:${sobraCol}">${fmtBRL(b.sobra)}</strong></div>
+  </details>`;
+
+  const monthly = `<details class="card mb-3"><summary class="font-semibold" style="cursor:pointer">📈 Mês a mês (12 meses)</summary>
+    <div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:.8rem;font-variant-numeric:tabular-nums">
+      <thead><tr style="text-align:right;color:var(--text2)"><th style="text-align:left;padding:4px">Mês</th><th>Entra</th><th>Sai</th><th>Sobra</th><th>Reserva</th></tr></thead>
+      <tbody>${pr.rows.map(r => `<tr style="text-align:right;border-top:1px solid var(--border)"><td style="text-align:left;padding:4px">${_fYmLabel(r.ym)}${r.ev.length ? ` <span title="${_esc(r.ev.map(e => e.label).join(', '))}">★</span>` : ''}</td>
+        <td>${fmtBRL(r.income)}</td><td>${fmtBRL(r.outFix + r.outVar)}</td><td style="color:${r.sobra < 0 ? 'var(--danger)' : 'var(--success)'}">${fmtBRL(r.sobra)}</td><td>${fmtBRL(r.sA)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="text-xs text-muted mt-2">★ entrada/saída avulsa (13º, férias…). Reserva com rendimento de ${(+p.cdi).toLocaleString('pt-BR',{maximumFractionDigits:2})}% ao ano (CDI) menos ${(+p.irPct).toLocaleString('pt-BR')}% de IR.</div></details>`;
+
+  // Cartões, VR/VA e perfil reaproveitam os blocos da versão anterior, cada um recolhido
+  const tmp = document.createElement('div');
+  _origRenderFinProjectionV343.call(this, tmp);
+  const pick = re => { const c = [...tmp.querySelectorAll(':scope > .card')].find(x => re.test(x.firstElementChild ? x.firstElementChild.textContent : '')); return c ? c.innerHTML : ''; };
+  const fold = (title, inner) => inner ? `<details class="card mb-3"><summary class="font-semibold" style="cursor:pointer">${title}</summary><div class="mt-2">${inner}</div></details>` : '';
+  const openSum = p.cards.reduce((s,c) => s + cardStatus(c, p.cards).open, 0);
+  const strip = html => html.replace(/^\s*<div class="flex items-center justify-between mb-2"><div class="font-semibold">💳 Cartões de crédito<\/div>/, '<div class="flex items-center justify-between mb-2"><div></div>')
+                            .replace(/^\s*<div class="font-semibold mb-1">🍽 VR\/VA<\/div>/, '')
+                            .replace(/^\s*<div class="font-semibold mb-2">⚙ Seu perfil financeiro<\/div>/, '');
+  const openDetails = [...container.querySelectorAll('details')].map(d => d.open);
+  container.innerHTML = head + alertsHTML + goalsHTML + breakdown + monthly
+    + fold(`💳 Cartões${p.cards.length ? ` <span class="text-xs text-muted">· faturas abertas ${fmtBRL(openSum)}</span>` : ''}`, strip(pick(/Cartões de crédito/)))
+    + fold('🍽 VR/VA', strip(pick(/VR\/VA/)))
+    + fold('⚙ Perfil e reservas', strip(pick(/Seu perfil financeiro/)));
+  // mantém abertas as seções que estavam abertas antes de redesenhar (editar um campo não fecha tudo)
+  container.querySelectorAll(':scope > details').forEach((d, i) => { if (openDetails[i]) d.open = true; });
+};
+
+// Metas financeiras: sem resumo duplicado; em cada meta, uma linha com a projeção e a ligação com as reservas
+renderFinGoals = function (container) {
+  finGoalsSyncFromReserves();
+  _origRenderFinGoalsV343.call(this, container);
+  const pr = finProjection();
+  const gs = finGoalsStatus(pr);
+  const res = finPlan().reserves || [];
+  gs.forEach(x => {
+    const btn = container.querySelector(`button[onclick="editFinGoal('${x.g.id}')"]`);
+    const card = btn && btn.closest('.card'); if (!card) return;
+    const linked = Array.isArray(x.g.reserveIds) ? x.g.reserveIds : [];
+    card.insertAdjacentHTML('beforeend', `<div class="text-xs mt-3" style="border-top:1px dashed var(--border);padding-top:8px;line-height:1.7">
+      📈 Pela sua Projeção (sobra de ${fmtBRL(pr.baseSobra)}/mês): ${_fHitText(x.hit, x.n)}
+      ${res.length ? `<br><span class="text-muted">Valor guardado acompanha o saldo de:</span> ${res.map(r => `<label style="margin-right:8px;white-space:nowrap"><input type="checkbox" ${linked.includes(r.id) ? 'checked' : ''} onchange="finGoalToggleReserve('${x.g.id}','${r.id}',this.checked)"> ${_esc(r.name || 'reserva')}</label>`).join('')}` : ''}</div>`);
+  });
 };
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
