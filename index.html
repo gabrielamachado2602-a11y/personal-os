@@ -2102,7 +2102,11 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
         <select class="form-select" id="fgoal-sub"><option value="">Sem sub-área</option></select>
       </div>
     </div>
-    <div class="text-xs text-muted mb-3" style="margin-top:-6px">Metas financeiras também aparecem na visão geral de Metas.</div>
+    <div class="form-group">
+      <label class="form-label">Faz parte de qual meta? <span class="text-muted" style="font-size:.75rem">(opcional)</span></label>
+      <select class="form-select" id="fgoal-goal"><option value="">Nenhuma — é uma meta só de dinheiro</option></select>
+      <div class="text-xs text-muted mt-1">Ligada, ela vira a parte financeira daquela meta: em Metas aparece um card só, com o dinheiro guardado dentro dele.</div>
+    </div>
     <div style="border-top:1px solid var(--border);margin:4px 0 14px;padding-top:12px">
       <div class="text-sm font-semibold mb-1">Projeção com rendimento</div>
       <div class="text-xs text-muted mb-3">Opcional. Considera juros compostos sobre o valor acumulado e os aportes. A rentabilidade futura é uma premissa, não uma garantia.</div>
@@ -4517,7 +4521,7 @@ function renderGoals() {
   const horizons = GOAL_VIEW_HORIZONS[goalsView] || [goalsView];
   let items = STATE.goals.filter(g => horizons.includes(g.horizon));
   // #6.3 — metas financeiras entram na estrutura unificada, filtradas pelo horizonte como as demais
-  const finAsGoals = STATE.finGoals.map(fg => ({
+  const finAsGoals = STATE.finGoals.filter(fg => !(fg.goalId && STATE.goals.some(x => x.id === fg.goalId))).map(fg => ({
     id: fg.id, title: fg.name, dim: fg.dim || '', sub: fg.sub || '',
     type: 'quantitative', target: fg.target || 0, current: fg.current || 0, unit: 'R$',
     status: (fg.target > 0 && (fg.current||0) >= fg.target) ? 'achieved' : 'in_progress',
@@ -8059,6 +8063,7 @@ function saveFinGoal() {
     dim: document.getElementById('fgoal-dim').value || '',
     sub: document.getElementById('fgoal-sub').value || '',
     notes: document.getElementById('fgoal-notes').value.trim(),
+    goalId: document.getElementById('fgoal-goal') ? document.getElementById('fgoal-goal').value : '',
     created: Date.now(), updatedAt: Date.now()
   };
   const existing = STATE.finGoals.findIndex(x => x.id === id);
@@ -8289,7 +8294,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.45.2';
+const APP_VERSION = '3.46.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -15333,6 +15338,85 @@ renderFinTransactions = function (container) {
     ${is.transf.length > 1 ? `<button class="btn btn-ghost btn-sm mt-1" onclick="finTxSetTransfer(${_esc(JSON.stringify(is.transf.map(t => t.id))).replace(/&quot;/g, "'")},true)">Marcar os ${is.transf.length} como transferência</button>` : ''}`);
   if (parts.length) container.insertAdjacentHTML('afterbegin', `<div class="card mb-3" style="border-left:3px solid var(--danger)"><div class="font-semibold">🔎 Pode estar sendo contado errado</div>${parts.join('')}
     <div class="text-xs text-muted mt-2">O botão ⇄ em cada lançamento faz o mesmo: transferência não entra em Receitas, Despesas nem na Projeção.</div></div>`);
+};
+
+
+// ── v3.46.0 — Meta financeira como parte de uma meta ──
+function _fgoalFillGoalSelect(selected) {
+  const sel = document.getElementById('fgoal-goal'); if (!sel) return;
+  const goals = (STATE.goals || []).filter(g => g.status !== 'abandoned').slice().sort((a,b) => (a.title||'').localeCompare(b.title||''));
+  sel.innerHTML = `<option value="">Nenhuma — é uma meta só de dinheiro</option>` + goals.map(g => `<option value="${g.id}" ${g.id === selected ? 'selected' : ''}>${_esc(g.title)}</option>`).join('');
+}
+const _origOpenFinGoalModalV346 = openFinGoalModal;
+openFinGoalModal = function (preGoalId) {
+  _origOpenFinGoalModalV346.apply(this, arguments);
+  _fgoalFillGoalSelect(typeof preGoalId === 'string' ? preGoalId : '');
+  if (typeof preGoalId === 'string' && preGoalId) {
+    const g = STATE.goals.find(x => x.id === preGoalId);
+    if (g) { document.getElementById('fgoal-name').value = g.title; if (g.estimatedCost) document.getElementById('fgoal-target').value = g.estimatedCost;
+      if (g.dim) { populateDimSelect('fgoal-dim', g.dim); populateSubSelect('fgoal-sub','fgoal-dim', g.sub || ''); } }
+  }
+};
+const _origEditFinGoalV346 = editFinGoal;
+editFinGoal = function (id) {
+  _origEditFinGoalV346.apply(this, arguments);
+  const fg = (STATE.finGoals || []).find(x => x.id === id);
+  _fgoalFillGoalSelect(fg && fg.goalId || '');
+};
+function finGoalOfGoal(goalId) {
+  return (STATE.finGoals || []).find(fg => fg.goalId === goalId) || null;
+}
+function _goalMoneyBlock(goalId, color) {
+  const fg = finGoalOfGoal(goalId);
+  if (!fg) { const g = (STATE.goals || []).find(x => x.id === goalId);
+    return g && g.hasCost ? `<div class="mt-2"><button class="btn btn-ghost btn-sm" onclick="openFinGoalModal('${goalId}')">💰 Guardar dinheiro para esta meta</button></div>` : ''; }
+  finGoalsSyncFromReserves();
+  const pct = +fg.target > 0 ? Math.min(100, Math.round((+fg.current || 0) / +fg.target * 100)) : 0;
+  const gp = finGoalProjection(fg);
+  let hitTxt = '';
+  try { const st = finGoalsStatus(finProjection()).find(x => x.g.id === fg.id); if (st) hitTxt = `Pela sua Projeção: ${_fHitText(st.hit, st.n)}`; } catch(e) {}
+  return `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+    <div class="flex items-center justify-between mb-1"><span class="text-xs text-muted">💰 Dinheiro desta meta</span>
+      <button class="btn btn-ghost btn-sm" onclick="editFinGoal('${fg.id}')">Editar valores</button></div>
+    <div class="flex items-center gap-2"><div class="progress-bar" style="flex:1"><div class="progress-fill" style="width:${pct}%;background:${color || 'var(--accent-green)'}"></div></div>
+      <span class="text-xs text-muted">${fmtBRL(+fg.current || 0)} de ${fmtBRL(+fg.target || 0)} (${pct}%)</span></div>
+    <div class="text-xs mt-1" style="line-height:1.6">
+      ${gp.pmtNeeded != null && gp.pmtNeeded > 0 ? `Para o prazo${fg.deadline ? ` (${fg.deadline.split('-').reverse().join('/')})` : ''}: guardar <strong>${fmtBRL(gp.pmtNeeded)}/mês</strong>.<br>` : ''}
+      ${hitTxt}</div></div>`;
+}
+const _origGoalFinancialsHTMLV346 = goalFinancialsHTML;
+goalFinancialsHTML = function (goalId, color) {
+  const fg = finGoalOfGoal(goalId);
+  const f = goalFinancials(goalId);
+  // com a parte financeira ligada, o bloco de custo só aparece se houver gastos/tarefas/compromissos de verdade
+  const orig = (fg && !f.count && !f.tasksCost && !f.eventsCost) ? '' : _origGoalFinancialsHTMLV346.apply(this, arguments);
+  return orig + _goalMoneyBlock(goalId, color);
+};
+// Na aba Metas financeiras, mostra de qual meta ela faz parte
+const _origRenderFinGoalsV346 = renderFinGoals;
+renderFinGoals = function (container) {
+  _origRenderFinGoalsV346.apply(this, arguments);
+  (STATE.finGoals || []).forEach(fg => {
+    const g = fg.goalId && STATE.goals.find(x => x.id === fg.goalId); if (!g) return;
+    const btn = container.querySelector(`button[onclick="editFinGoal('${fg.id}')"]`);
+    const card = btn && btn.closest('.card'); if (!card) return;
+    const title = card.querySelector('.font-semibold');
+    if (title) title.insertAdjacentHTML('afterend', `<div class="text-xs mt-1" style="color:var(--accent)">🔗 Parte da meta "${_esc(g.title)}"</div>`);
+  });
+};
+
+
+// Salvar algo dentro do Financeiro (subárea) não volta mais para a Visão geral
+const _origRefreshCurrentViewV346 = refreshCurrentView;
+refreshCurrentView = function () {
+  const prev = (typeof finView !== 'undefined') ? finView : null;
+  _origRefreshCurrentViewV346.apply(this, arguments);
+  if (prev && prev !== 'overview' && document.getElementById('fin-view-sub')) {
+    finView = prev;
+    const labels = { projection:'Projeção', transactions:'Lançamentos', goals:'Metas financeiras' };
+    document.querySelectorAll('.fin-tabs-group .tab').forEach(b => b.classList.toggle('active', b.textContent.trim() === labels[prev]));
+    renderFinancial();
+  }
 };
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
