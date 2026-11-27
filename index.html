@@ -3258,12 +3258,12 @@ function mealChecklistCardHTML(date) {
       <div class="flex items-center justify-between">
         <div class="text-sm font-semibold">${m.label} <span class="text-xs text-muted">${m.time}</span></div>
         <div class="flex gap-1">
-          ${opts.map(o=>`<button onclick="mealToggle(${JSON.stringify(date)},${JSON.stringify(m.id)},${JSON.stringify(o.val)})"
+          ${opts.map(o=>`<button onclick="mealToggle('${date}','${m.id}','${o.val}')"
             style="font-size:.7rem;padding:2px 7px;border:1.5px solid ${v===o.val?o.color:'var(--border)'};border-radius:12px;background:${v===o.val?o.color+'22':'transparent'};color:${v===o.val?o.color:'var(--text)'};cursor:pointer">${o.label}</button>`).join('')}
         </div>
       </div>
       ${v==='adaptei'?`<input class="inp" placeholder="O que foi diferente? (opcional)" value="${_esc(note)}"
-        onchange="mealSetNote(${JSON.stringify(date)},${JSON.stringify(m.id)},this.value)"
+        onchange="mealSetNote('${date}','${m.id}',this.value)"
         style="font-size:.75rem;padding:3px 8px;height:28px">`:''}`
     + `</div>`;
   }).join('');
@@ -3286,8 +3286,10 @@ function mealToggle(date, mealId, val) {
   const meals = { ...(log?.meals||{}) };
   meals[mealId] = meals[mealId]===val ? '' : val;
   mealSaveLog(date, meals);
+  const host = document.getElementById('meal-card-host');
+  if (host) { host.innerHTML = mealChecklistCardHTML(date); return; }
   const card = document.getElementById('meal-checklist-card');
-  if (card) card.outerHTML = mealChecklistCardHTML(date);
+  if (card) { const p = card.parentNode; const tmp = document.createElement('div'); tmp.innerHTML = mealChecklistCardHTML(date); p.replaceChild(tmp.firstChild, card); }
 }
 function mealSetNote(date, mealId, val) {
   const log = mealGetLog(date);
