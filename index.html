@@ -8301,7 +8301,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.48.0';
+const APP_VERSION = '3.49.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14434,7 +14434,7 @@ function finProjection() {
   const vr = finVariableAvg();
   const reserveTotal = p.reserves.reduce((s,r) => s + (+r.balance || 0), 0);
   const rate = reserveTotal > 0
-    ? p.reserves.reduce((s,r) => s + (+r.balance || 0) * _fNetMonthlyRate(r.cdiPct), 0) / reserveTotal
+    ? p.reserves.reduce((s,r) => s + (+r.balance || 0) * _fNetMonthlyRate(_fReserveEffPct(r)), 0) / reserveTotal
     : _fNetMonthlyRate(100);
   const extraAvg = finExtraAvg();
   const extra = p.extraMode === 'avg' ? extraAvg : 0;
@@ -14566,7 +14566,7 @@ function finPlanRowDel(kind, id) {
 }
 function finPlanRowSet(kind, id, field, value) {
   const p = finPlan(); const r = p[kind].find(x => x.id === id); if (!r) return;
-  const nums = ['limit','closeDay','dueDay','balance','cdiPct','amount','bankOpen'];
+  const nums = ['limit','closeDay','dueDay','balance','cdiPct','amount','bankOpen','capAmount'];
   if (field === 'primary') p[kind].forEach(x => x.primary = (x.id === id));
   else r[field] = nums.includes(field) ? (parseFloat(String(value).replace(',', '.')) || 0) : value;
   save(); _finRerender();
@@ -14681,6 +14681,7 @@ function renderFinProjection(container) {
       <span style="width:150px">${inp(r.name, `finPlanRowSet('reserves','${r.id}','name',this.value)`, 'placeholder="Onde (ex.: caixinha)"')}</span>
       <span class="text-xs">saldo</span><span style="width:110px">${inp(r.balance||'', `finPlanRowSet('reserves','${r.id}','balance',this.value)`, 'inputmode="decimal"')}</span>
       <span class="text-xs">% do CDI</span><span style="width:60px">${inp(r.cdiPct, `finPlanRowSet('reserves','${r.id}','cdiPct',this.value)`, 'inputmode="decimal"')}</span>
+      <span class="text-xs">até R$</span><span style="width:90px">${inp(r.capAmount || '', `finPlanRowSet('reserves','${r.id}','capAmount',this.value)`, 'inputmode="decimal" placeholder="sem limite" title="Se o % só vale até um valor (ex.: Turbo até 5.000), o resto rende 100% do CDI"')}</span>
       <button class="btn-icon" onclick="finPlanRowDel('reserves','${r.id}')">✕</button></div>`).join('');
   const evHTML = p.events.slice().sort((a,b)=>a.month.localeCompare(b.month)).map(e => `<div class="flex gap-2" style="flex-wrap:wrap;align-items:center;padding:4px 0">
       <span style="width:150px">${inp(e.label, `finPlanRowSet('events','${e.id}','label',this.value)`, 'placeholder="Ex.: 13º 2ª parcela"')}</span>
@@ -15125,7 +15126,7 @@ finProjection = function () {
   const vr = finVariableAvg();
   const reserveTotal = p.reserves.reduce((s,r) => s + (+r.balance || 0), 0);
   const rate = reserveTotal > 0
-    ? p.reserves.reduce((s,r) => s + (+r.balance || 0) * _fNetMonthlyRate(r.cdiPct), 0) / reserveTotal
+    ? p.reserves.reduce((s,r) => s + (+r.balance || 0) * _fNetMonthlyRate(_fReserveEffPct(r)), 0) / reserveTotal
     : _fNetMonthlyRate(100);
   const extraAvg = finExtraAvg();
   const extra = p.extraMode === 'avg' ? extraAvg : 0;
@@ -15501,6 +15502,56 @@ txnRow = function (t, wd) {
     h = h.replace('<div class="item-meta">', `<div class="item-meta"><span class="chip" title="Não pesa no mês: sai do dinheiro guardado" style="color:var(--accent);border-color:var(--accent)">💰 do guardado${g ? ': ' + _esc(g.name) : ''}</span>`);
   }
   return h;
+};
+
+// ── v3.49.0 — Rendimento real das caixinhas (com teto do % especial) ──
+// % do CDI efetivo de uma reserva: o % especial só vale até capAmount; o que passa rende 100% do CDI
+function _fReserveEffPct(r) {
+  const bal = +r.balance || 0, pct = +r.cdiPct || 100, cap = +r.capAmount || 0;
+  if (!(cap > 0) || bal <= cap || bal <= 0) return pct;
+  return (cap * pct + (bal - cap) * 100) / bal;
+}
+// Rendimento líquido ao ano de um conjunto de reservas (mesma régua do 11,26% = CDI × % × (1 − IR))
+function _fReservesNetAnnual(resList) {
+  const p = finPlan(), tot = resList.reduce((s,r) => s + (+r.balance || 0), 0);
+  if (!(tot > 0)) return null;
+  const effPct = resList.reduce((s,r) => s + (+r.balance || 0) * _fReserveEffPct(r), 0) / tot;
+  return { effPct, annual: Math.round((+p.cdi || 0) * effPct / 100 * (1 - (+p.irPct || 0) / 100) * 100) / 100 };
+}
+const _origFinGoalsSyncFromReservesV349 = finGoalsSyncFromReserves;
+finGoalsSyncFromReserves = function () {
+  _origFinGoalsSyncFromReservesV349.apply(this, arguments);
+  const res = finPlan().reserves || []; let changed = false;
+  (STATE.finGoals || []).forEach(g => {
+    if (!Array.isArray(g.reserveIds) || !g.reserveIds.length) { if (g.rateAuto) { g.rateAuto = false; changed = true; } return; }
+    const rr = _fReservesNetAnnual(res.filter(r => g.reserveIds.includes(r.id))); if (!rr) return;
+    const eff = Math.round(rr.effPct * 100) / 100;
+    if (Math.abs((+g.annualRate || 0) - rr.annual) > 0.004 || !g.rateAuto || g.rateEffPct !== eff) {
+      g.annualRate = rr.annual; g.rateAuto = true; g.rateEffPct = eff; g.updatedAt = Date.now(); changed = true;
+    }
+  });
+  if (changed) saveLocal();
+};
+const _origRenderFinGoalsV349 = renderFinGoals;
+renderFinGoals = function (container) {
+  finGoalsSyncFromReserves();
+  _origRenderFinGoalsV349.apply(this, arguments);
+  (STATE.finGoals || []).filter(g => g.rateAuto).forEach(g => {
+    const btn = container.querySelector(`button[onclick="editFinGoal('${g.id}')"]`);
+    const card = btn && btn.closest('.card'); if (!card) return;
+    card.insertAdjacentHTML('beforeend', `<div class="text-xs text-muted mt-1">Rendimento calculado pelas caixinhas ligadas: ${(+g.rateEffPct || 0).toLocaleString('pt-BR',{maximumFractionDigits:2})}% do CDI → <strong>${(+g.annualRate).toLocaleString('pt-BR',{maximumFractionDigits:2})}% a.a. líquido</strong> (atualiza sozinho).</div>`);
+  });
+};
+const _origEditFinGoalV349 = editFinGoal;
+editFinGoal = function (id) {
+  _origEditFinGoalV349.apply(this, arguments);
+  const g = (STATE.finGoals || []).find(x => x.id === id), el = document.getElementById('fgoal-rate');
+  if (el) { el.disabled = !!(g && g.rateAuto); el.title = g && g.rateAuto ? 'Calculado pelas caixinhas ligadas a esta meta' : ''; }
+};
+const _origOpenFinGoalModalV349 = openFinGoalModal;
+openFinGoalModal = function () {
+  _origOpenFinGoalModalV349.apply(this, arguments);
+  const el = document.getElementById('fgoal-rate'); if (el) { el.disabled = false; el.title = ''; }
 };
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
