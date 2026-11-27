@@ -2583,7 +2583,39 @@ function load() {
       if (g.horizon === undefined) g.horizon = 'annual';
     });
     applyCustomCategories();
+    migrateAlimToSaude();
   } catch(e) { console.warn('Erro ao carregar dados:', e); }
+}
+
+// v3.40.1 — Alimentação deixa de ser subárea: tudo passa para Saúde
+function _findSubByName(re) {
+  for (const d of (STATE.dimensions||[])) for (const s of (d.subs||[])) if (re.test(s.name||'')) return { dim: d, sub: s };
+  return null;
+}
+function _saudeSubId() {
+  const f = _findSubByName(/^\s*sa[uú]de/i);
+  return f ? f.sub.id : 'bem-saude';
+}
+function migrateAlimToSaude() {
+  const alim = _findSubByName(/^\s*alimenta/i);
+  if (!alim) return 0;
+  let saude = _findSubByName(/^\s*sa[uú]de/i);
+  if (!saude) { alim.sub.name = 'Saúde'; return 0; } // sem Saúde: a própria subárea vira Saúde
+  const from = alim.sub.id, to = saude.sub.id;
+  let n = 0;
+  for (const k of Object.keys(STATE)) {
+    const arr = STATE[k];
+    if (!Array.isArray(arr) || k === 'dimensions') continue;
+    arr.forEach(it => {
+      if (it && typeof it === 'object' && it.sub === from) {
+        it.sub = to;
+        if (it.dim === alim.dim.id) it.dim = saude.dim.id;
+        n++;
+      }
+    });
+  }
+  alim.dim.subs = alim.dim.subs.filter(s => s.id !== from);
+  return n;
 }
 
 function applyCustomCategories() {
@@ -2855,6 +2887,7 @@ async function _drivePullInner() {
   if (!remote || typeof remote !== 'object' || Array.isArray(remote)) throw new Error('Arquivo do Drive em formato inesperado');
   mergeStateFrom(remote);
   syncTrackChanges(false);   // o que veio do Drive não conta como edição deste aparelho
+  migrateAlimToSaude();      // v3.40.1: outro aparelho pode trazer a subárea Alimentação de volta
   saveLocal();
   _driveKnownRemoteMT = meta.modifiedTime;
   _driveHasPulled = true;
@@ -8255,7 +8288,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.40.0';
+const APP_VERSION = '3.40.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -9375,7 +9408,7 @@ function renderSubAreaPage(subId) {
   const subHabits = STATE.habits.filter(h => h.sub === subId && h.active !== false);
   const subRecords= (STATE.subHistory||[]).filter(r => r.sub === subId).sort((a,b)=>b.date.localeCompare(a.date));
   const subIdeas  = STATE.inbox.filter(i => i.sub === subId);
-  const isAlimentacao = subId === 'bem-saude' || /aliment/i.test(sub.name || '');
+  const isAlimentacao = subId === _saudeSubId() || /aliment/i.test(sub.name || '');
 
   el.innerHTML = `<div class="page">
     <div style="cursor:pointer;color:var(--text2);font-size:.85rem;margin-bottom:16px" onclick="navigate('dim_${dim.id}')">← ${dim.name}</div>
@@ -14274,7 +14307,7 @@ renderSubAreaPage = function (subId) {
   const page = document.getElementById('page-subarea');
   if (!page) return;
   // Ciclo Menstrual + Alimentação → bem-saude
-  if (subId === 'bem-saude') {
+  if (subId === _saudeSubId()) {
     const first = page.querySelector('.card');
     if (!page.querySelector('#cycle-card-host')) {
       const host = document.createElement('div');
