@@ -2348,6 +2348,37 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
   </div>
 </div>
 
+<!-- Modal: Ciclo Menstrual -->
+<div class="modal-overlay hidden" id="modal-cycle">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-header">
+      <span class="modal-title">🔴 Registrar início do ciclo</span>
+      <button class="btn-icon" onclick="closeModal('modal-cycle')">✕</button>
+    </div>
+    <input type="hidden" id="modal-cycle-id">
+    <div class="form-group">
+      <label class="form-label">Data de início</label>
+      <input type="date" class="inp" id="modal-cycle-date">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Duração do sangramento (dias, opcional)</label>
+      <input type="number" class="inp" id="modal-cycle-duration" min="1" max="10" placeholder="ex: 5">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Duração do ciclo (dias)</label>
+      <input type="number" class="inp" id="modal-cycle-len" min="20" max="45" value="28">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notas (opcional)</label>
+      <input type="text" class="inp" id="modal-cycle-notes" placeholder="Cólica forte, TPM intensa...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cycle')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCycleEntry()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast container -->
 <div class="toast-container" id="toast-container"></div>
 
@@ -2382,6 +2413,8 @@ let STATE = {
   finGoals: [],
   subHistory: [],
   bodyComp: [],
+  mealLog: [],
+  cycleLog: [],
   calNotes: [],
   customCategories: [],
   goalLog: [],
@@ -2492,7 +2525,7 @@ function load() {
     // Garantir arrays obrigatórios
     const arrays = ['inbox','goals','projects','tasks','events','habits','habitLogs',
       'energyLogs','transactions','finGoals','posts','socialMetrics','socialGoals',
-      'pendingImport','inboxRules','bodyComp','subHistory','calNotes','applications','books','performanceLogs'];
+      'pendingImport','inboxRules','bodyComp','mealLog','cycleLog','subHistory','calNotes','applications','books','performanceLogs'];
     arrays.forEach(k => { if (!Array.isArray(STATE[k])) STATE[k] = []; });
     // Migration: ensure each dimension has subs array
     STATE.dimensions.forEach(d => { if (!d.subs) d.subs = []; });
@@ -2536,6 +2569,8 @@ function load() {
     STATE.habits.forEach(h => { if (h.active === undefined) h.active = true; });
     if (!STATE.subHistory) STATE.subHistory = [];
     if (!STATE.bodyComp) STATE.bodyComp = [];
+    if (!STATE.mealLog) STATE.mealLog = [];
+    if (!STATE.cycleLog) STATE.cycleLog = [];
     if (!STATE.calNotes) STATE.calNotes = [];
     if (!STATE.customCategories) STATE.customCategories = [];
     if (!STATE.goalLog) STATE.goalLog = [];
@@ -3057,6 +3092,228 @@ function notifSend(title, body, tag, data) {
   }
 }
 
+// ── CICLO MENSTRUAL ──────────────────────────────────────────────────────────
+// Fases: menstrual(1-5), folicular(6-13), ovulatória(14-16), lútea(17-28)
+const CYCLE_PHASES = [
+  { id:'menstrual',   label:'Menstrual',   emoji:'🔴', days:[1,5],  energy:'baixa',
+    tip:'Priorize revisões e planejamento. Evite decisões de alto impacto.', color:'#C06060' },
+  { id:'folicular',   label:'Folicular',   emoji:'🌱', days:[6,13], energy:'crescente',
+    tip:'Ótimo para aprender, criar e iniciar projetos novos.', color:'#5C8C5C' },
+  { id:'ovulatoria',  label:'Ovulatória',  emoji:'⚡', days:[14,16], energy:'alta',
+    tip:'Pico de comunicação e energia — ideal para apresentações e negociações.', color:'#B08A30' },
+  { id:'lutea',       label:'Lútea',       emoji:'🌙', days:[17,28], energy:'variável',
+    tip:'Foco e execução no início. Desacelere nos últimos dias.', color:'#7060A0' }
+];
+function cycleGetPhase(dayOfCycle) {
+  for (const p of CYCLE_PHASES) {
+    if (dayOfCycle >= p.days[0] && dayOfCycle <= p.days[1]) return p;
+  }
+  return CYCLE_PHASES[3]; // lútea tardia por padrão
+}
+function cycleGetCurrent() {
+  const logs = [...(STATE.cycleLog||[])].sort((a,b)=>b.date.localeCompare(a.date));
+  if (!logs.length) return null;
+  const last = logs[0];
+  const lastDate = new Date(last.date + 'T12:00:00');
+  const today = new Date(); today.setHours(12,0,0,0);
+  const dayOfCycle = Math.round((today - lastDate) / 86400000) + 1;
+  const cycleLen = last.cycleLen || 28;
+  // Calcula fase
+  const d = dayOfCycle > cycleLen ? ((dayOfCycle - 1) % cycleLen) + 1 : dayOfCycle;
+  return { dayOfCycle: d, cycleLen, phase: cycleGetPhase(d), lastStart: last.date, logs };
+}
+function cycleCardHTML() {
+  const info = cycleGetCurrent();
+  const logs = STATE.cycleLog || [];
+  if (!info) {
+    return `<div class="card mb-3">
+      <div class="font-semibold mb-2">🔴 Ciclo Menstrual</div>
+      <div class="text-sm text-muted mb-3">Registre o 1º dia da sua última menstruação para acompanhar as fases do ciclo.</div>
+      <button class="btn btn-sm" style="background:var(--accent);color:#fff" onclick="openCycleModal()">+ Registrar início do ciclo</button>
+    </div>`;
+  }
+  const { dayOfCycle, cycleLen, phase, lastStart } = info;
+  const daysLeft = cycleLen - dayOfCycle;
+  // Barra de progresso do ciclo
+  const pct = Math.min(100, Math.round((dayOfCycle / cycleLen) * 100));
+  // Fases como segmentos na barra
+  const phaseWidths = [
+    { p: CYCLE_PHASES[0], w: Math.round(5/cycleLen*100) },
+    { p: CYCLE_PHASES[1], w: Math.round(8/cycleLen*100) },
+    { p: CYCLE_PHASES[2], w: Math.round(3/cycleLen*100) },
+    { p: CYCLE_PHASES[3], w: Math.round(12/cycleLen*100) }
+  ];
+  const phasesBar = phaseWidths.map(({p,w})=>`<div style="height:8px;width:${w}%;background:${p.color};opacity:.7" title="${p.label}"></div>`).join('');
+  const nextPeriod = new Date(lastStart + 'T12:00:00');
+  nextPeriod.setDate(nextPeriod.getDate() + cycleLen);
+  const nextStr = nextPeriod.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  const histRows = [...logs].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4).map(l=>{
+    const dur = l.duration ? `${l.duration} dias` : '';
+    const len = l.cycleLen ? `ciclo ${l.cycleLen}d` : '';
+    return `<div class="flex justify-between text-xs text-muted py-1" style="border-bottom:1px solid var(--border)">
+      <span>${formatDate(l.date)}</span><span>${[dur,len].filter(Boolean).join(' · ')}</span>
+    </div>`;
+  }).join('');
+  return `<div class="card mb-3">
+    <div class="flex items-center justify-between mb-2">
+      <div class="font-semibold">🔴 Ciclo Menstrual</div>
+      <button class="btn btn-ghost btn-sm" onclick="openCycleModal()">+ Novo ciclo</button>
+    </div>
+    <div class="flex items-center gap-3 mb-3">
+      <div style="font-size:2rem;line-height:1">${phase.emoji}</div>
+      <div>
+        <div class="font-semibold" style="color:${phase.color}">${phase.label}</div>
+        <div class="text-xs text-muted">Dia ${dayOfCycle} de ${cycleLen} · ${daysLeft} dias para a próxima</div>
+      </div>
+    </div>
+    <div style="display:flex;border-radius:4px;overflow:hidden;margin-bottom:4px">${phasesBar}</div>
+    <div class="text-xs text-muted mb-3" style="text-align:right">Próximo ciclo: ~${nextStr}</div>
+    <div class="text-sm mb-3" style="background:${phase.color}18;border-left:3px solid ${phase.color};padding:8px 10px;border-radius:0 6px 6px 0">
+      💡 ${phase.tip}
+    </div>
+    ${histRows ? `<div class="text-xs font-semibold text-muted mb-1">Histórico</div>${histRows}` : ''}
+    ${logs.length > 1 ? `<div class="text-xs text-muted mt-2">Duração média do ciclo: ${Math.round(logs.slice(0,-1).reduce((s,l)=>s+(l.cycleLen||28),0)/(logs.length-1))} dias</div>` : ''}
+  </div>`;
+}
+function openCycleModal(id) {
+  const ex = id ? (STATE.cycleLog||[]).find(x=>x.id===id) : null;
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('modal-cycle-id').value = ex?.id||'';
+  document.getElementById('modal-cycle-date').value = ex?.date||today;
+  document.getElementById('modal-cycle-duration').value = ex?.duration||'';
+  document.getElementById('modal-cycle-len').value = ex?.cycleLen||28;
+  document.getElementById('modal-cycle-notes').value = ex?.notes||'';
+  openModal('modal-cycle');
+}
+function saveCycleEntry() {
+  const id = document.getElementById('modal-cycle-id').value || ('cy_'+Date.now());
+  const date = document.getElementById('modal-cycle-date').value;
+  if (!date) { alert('Informe a data de início.'); return; }
+  const dur = Number(document.getElementById('modal-cycle-duration').value)||null;
+  const cycleLen = Number(document.getElementById('modal-cycle-len').value)||28;
+  const notes = document.getElementById('modal-cycle-notes').value.trim();
+  if (!STATE.cycleLog) STATE.cycleLog = [];
+  const ex = STATE.cycleLog.findIndex(x=>x.id===id);
+  const rec = { id, date, duration:dur, cycleLen, notes, _mt: Date.now() };
+  if (ex>=0) STATE.cycleLog[ex]=rec; else STATE.cycleLog.push(rec);
+  save();
+  closeModal('modal-cycle');
+  if (currentPage==='subarea') renderSubAreaPage(currentSubId);
+  showToast('🔴 Ciclo registrado!');
+}
+function deleteCycleEntry(id) {
+  if (!confirm('Excluir este registro de ciclo?')) return;
+  STATE.cycleLog = (STATE.cycleLog||[]).filter(x=>x.id!==id);
+  save();
+  if (currentPage==='subarea') renderSubAreaPage(currentSubId);
+}
+
+// ── ALIMENTAÇÃO — CHECKLIST DO PLANO ─────────────────────────────────────────
+const MEAL_PLAN = [
+  { id:'cafe',      label:'☕ Café da manhã', time:'08:00', kcal:290 },
+  { id:'almoco',    label:'🍽 Almoço',         time:'11:30', kcal:407 },
+  { id:'pos1',      label:'🥤 Pós-treino 1',   time:'13:30', kcal:193 },
+  { id:'lanche',    label:'🫓 Lanche',          time:'16:30', kcal:420 },
+  { id:'intra',     label:'⚡ Intratreino',     time:'20:00', kcal:48  },
+  { id:'pos2',      label:'💪 Pós-treino 2',   time:'21:00', kcal:185 },
+  { id:'ceia',      label:'🌙 Ceia',            time:'21:30', kcal:284 }
+];
+const MEAL_KCAL_TARGET = 1600;
+function mealGetLog(date) {
+  return (STATE.mealLog||[]).find(x=>x.date===date) || null;
+}
+function mealSaveLog(date, meals) {
+  if (!STATE.mealLog) STATE.mealLog = [];
+  const ex = STATE.mealLog.findIndex(x=>x.date===date);
+  const rec = { date, meals, _mt: Date.now() };
+  if (ex>=0) STATE.mealLog[ex]=rec; else STATE.mealLog.push(rec);
+  save();
+}
+function mealKcalEstimate(meals) {
+  if (!meals) return 0;
+  return MEAL_PLAN.reduce((sum,m) => {
+    const s = meals[m.id];
+    if (!s || s==='pulei') return sum;
+    if (s==='segui') return sum + m.kcal;
+    if (s==='adaptei') return sum + Math.round(m.kcal * 0.8);
+    return sum;
+  }, 0);
+}
+function mealChecklistCardHTML(date) {
+  const log = mealGetLog(date);
+  const meals = log?.meals || {};
+  const kcal = mealKcalEstimate(meals);
+  const pct = Math.min(100, Math.round(kcal / MEAL_KCAL_TARGET * 100));
+  const filled = MEAL_PLAN.filter(m=>meals[m.id]).length;
+  const statusColor = kcal > 0 ? (pct > 110 ? '#C06060' : pct >= 70 ? '#5C8C5C' : '#B08A30') : 'var(--muted)';
+  const rows = MEAL_PLAN.map(m => {
+    const v = meals[m.id] || '';
+    const note = meals[m.id+'_note'] || '';
+    const opts = [
+      { val:'segui',   label:'✓ Segui',   color:'#5C8C5C' },
+      { val:'adaptei', label:'~ Adaptei', color:'#B08A30' },
+      { val:'pulei',   label:'✗ Pulei',   color:'#C06060' }
+    ];
+    return `<div class="meal-row" style="display:flex;flex-direction:column;gap:4px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div class="flex items-center justify-between">
+        <div class="text-sm font-semibold">${m.label} <span class="text-xs text-muted">${m.time}</span></div>
+        <div class="flex gap-1">
+          ${opts.map(o=>`<button onclick="mealToggle(${JSON.stringify(date)},${JSON.stringify(m.id)},${JSON.stringify(o.val)})"
+            style="font-size:.7rem;padding:2px 7px;border:1.5px solid ${v===o.val?o.color:'var(--border)'};border-radius:12px;background:${v===o.val?o.color+'22':'transparent'};color:${v===o.val?o.color:'var(--text)'};cursor:pointer">${o.label}</button>`).join('')}
+        </div>
+      </div>
+      ${v==='adaptei'?`<input class="inp" placeholder="O que foi diferente? (opcional)" value="${_esc(note)}"
+        onchange="mealSetNote(${JSON.stringify(date)},${JSON.stringify(m.id)},this.value)"
+        style="font-size:.75rem;padding:3px 8px;height:28px">`:''}`
+    + `</div>`;
+  }).join('');
+  const kcalBar = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+      <div style="width:${pct}%;height:100%;background:${statusColor};transition:width .3s;border-radius:4px"></div>
+    </div>
+    <div class="text-xs" style="color:${statusColor};white-space:nowrap">${kcal} / ${MEAL_KCAL_TARGET} kcal</div>
+  </div>`;
+  return `<div class="card mb-3" id="meal-checklist-card">
+    <div class="flex items-center justify-between mb-2">
+      <div class="font-semibold">🥗 Plano Alimentar</div>
+      <div class="text-xs text-muted">${filled}/${MEAL_PLAN.length} refeições</div>
+    </div>
+    ${kcalBar}${rows}
+  </div>`;
+}
+function mealToggle(date, mealId, val) {
+  const log = mealGetLog(date);
+  const meals = { ...(log?.meals||{}) };
+  meals[mealId] = meals[mealId]===val ? '' : val;
+  mealSaveLog(date, meals);
+  const card = document.getElementById('meal-checklist-card');
+  if (card) card.outerHTML = mealChecklistCardHTML(date);
+}
+function mealSetNote(date, mealId, val) {
+  const log = mealGetLog(date);
+  const meals = { ...(log?.meals||{}) };
+  meals[mealId+'_note'] = val;
+  mealSaveLog(date, meals);
+}
+// Notificação de alimentação às 21h
+function notifScheduleMeals() {
+  if (!notifIsEnabled() || STATE.settings.notifMealsEnabled === false) return;
+  const now = new Date();
+  const [hh,mm] = (STATE.settings.notifMealsTime||'21:00').split(':').map(Number);
+  const fireAt = new Date(now);
+  fireAt.setHours(hh,mm,0,0);
+  if (fireAt <= now) return;
+  const delay = fireAt.getTime() - now.getTime();
+  setTimeout(() => {
+    if (!notifIsEnabled()) return;
+    const today = new Date().toISOString().slice(0,10);
+    const log = mealGetLog(today);
+    const filled = log ? MEAL_PLAN.filter(m=>log.meals?.[m.id]).length : 0;
+    if (filled >= MEAL_PLAN.length) return; // já preencheu tudo
+    notifSend('🥗 Plano alimentar', `${MEAL_PLAN.length - filled} refeição(ões) ainda não registrada(s) hoje.`, 'meal-reminder');
+  }, delay);
+}
+
 // Agenda todas as notificações do dia
 function notifScheduleAll() {
   if (!notifIsEnabled()) return;
@@ -3064,6 +3321,7 @@ function notifScheduleAll() {
   notifScheduleHabits();
   notifScheduleEvents();
   notifScheduleFinance();
+  notifScheduleMeals();
 }
 
 // Tarefas com prazo hoje ou amanhã
@@ -4594,9 +4852,17 @@ function toggleTask(id) {
   t.status = wasDone ? 'not_started' : 'done';
   if (t.status === 'done') {
     t.completedAt = Date.now();
-    // Sugestão de registro de performance para tarefas profissionais de alta prioridade
-    if ((t.dim === 'profissional' || t.dim === 'proposito') && (t.priority === 'urgent' || t.priority === 'high')) {
+    // Caderneta: estimativa ≥1h OU prioridade alta/urgente OU vinculada a meta
+    const effortH = Number(t.effort || 0);
+    const isHighImpact = effortH >= 1 || t.priority === 'urgent' || t.priority === 'high' || !!t.goalId;
+    if (isHighImpact) {
       setTimeout(() => suggestPerformanceLog(t), 400);
+    }
+    // Pipeline: título sugere candidatura
+    const PIPELINE_KEYWORDS = /inscri[cç][aã]o|candidatura|processo\s*seletiv|trainee|sele[cç][aã]o|vaga|monitoria|fellowship|estágio|estagio/i;
+    if (PIPELINE_KEYWORDS.test(t.title || '') && !t._pipelineSuggested) {
+      t._pipelineSuggested = true;
+      setTimeout(() => suggestPipelineEntry(t), 800);
     }
   }
   save();
@@ -4615,6 +4881,17 @@ function suggestPerformanceLog(task) {
   t.innerHTML = `<span>📋 Quer registrar "${_esc(task.title.slice(0,35))}" na sua caderneta?</span><button style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;white-space:nowrap" onclick="openPerformanceModal('',{what:${JSON.stringify(task.title)},dim:${JSON.stringify(task.dim||'profissional')},goalId:${JSON.stringify(task.goalId||'')},impact:'medio'});this.closest('.toast').remove()">Registrar</button>`;
   c.appendChild(t);
   setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); }, 6000);
+}
+function suggestPipelineEntry(task) {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.style.cssText = 'cursor:pointer;display:flex;align-items:center;gap:10px;max-width:340px;line-height:1.4';
+  const company = (task.title.match(/(?:em|na|no|para|@)\s+([A-Z][^\s|,]{2,})/i)||[])[1] || '';
+  const pre = JSON.stringify({ company, program: task.title.slice(0,60), stage: 'inscrita', goalId: task.goalId||'' });
+  t.innerHTML = `<span>🎯 Isso é uma candidatura? Adicionar ao Pipeline?</span><button style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;white-space:nowrap" onclick="openApplicationModal('',${pre});this.closest('.toast').remove()">Adicionar</button>`;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); }, 7000);
 }
 function showToast(msg, duration=2200) {
   if (typeof duration !== 'number') { if (duration === 'error') { toast(msg, true); return; } duration = 3000; }
@@ -7976,7 +8253,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.39.9';
+const APP_VERSION = '3.40.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13085,7 +13362,27 @@ const _origWhatNowHTMLV336 = whatNowHTML;
 whatNowHTML = function () {
   const html = _origWhatNowHTMLV336.apply(this, arguments);
   const r = whatNow();
-  return r.inWork ? `<div class="text-xs" style="color:var(--accent);margin-bottom:4px">💼 No expediente até ${_minToHM(r.workEnd)}: tarefas do trabalho primeiro.</div>` + html : html;
+  let prefix = '';
+  if (r.inWork) prefix = `<div class="text-xs" style="color:var(--accent);margin-bottom:4px">💼 No expediente até ${_minToHM(r.workEnd)}: tarefas do trabalho primeiro.</div>`;
+  // Ciclo menstrual
+  const ci = cycleGetCurrent();
+  if (ci) {
+    const p = ci.phase;
+    prefix += `<div class="text-xs mb-1" style="color:${p.color}">🔴 Fase ${p.label} (dia ${ci.dayOfCycle}) · ${p.tip}</div>`;
+  }
+  return prefix + html;
+};
+// Adicionar indicador de ciclo no Command Center
+const _origRenderCCV340 = renderCommandCenter;
+renderCommandCenter = function () {
+  _origRenderCCV340.apply(this, arguments);
+  const ci = cycleGetCurrent();
+  if (!ci) return;
+  const p = ci.phase;
+  const bar = document.querySelector('#page-command .section-header');
+  if (bar && !document.getElementById('cycle-cc-badge')) {
+    bar.insertAdjacentHTML('afterend', `<div id="cycle-cc-badge" class="text-xs" style="color:${p.color};margin-bottom:8px;padding:4px 10px;background:${p.color}18;border-radius:6px;display:inline-block">${p.emoji} ${p.label} · dia ${ci.dayOfCycle}/${ci.cycleLen} &nbsp;·&nbsp; ${p.tip}</div>`);
+  }
 };
 
 // ── Agenda: o bloco vira faixa de fundo; reuniões por cima ──
@@ -13968,6 +14265,39 @@ renderBooks = function () {
   const pg = document.getElementById('page-books');
   if (host && pg && currentPage === 'subarea') { while (pg.firstChild) host.appendChild(pg.firstChild); }
 };
+// ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
+const _origRenderSubAreaV340 = renderSubAreaPage;
+renderSubAreaPage = function (subId) {
+  _origRenderSubAreaV340.apply(this, arguments);
+  const page = document.getElementById('page-subarea');
+  if (!page) return;
+  // Ciclo Menstrual → bem-saude
+  if (subId === 'bem-saude') {
+    const existing = page.querySelector('#cycle-card-host');
+    if (!existing) {
+      const host = document.createElement('div');
+      host.id = 'cycle-card-host';
+      host.innerHTML = cycleCardHTML();
+      const first = page.querySelector('.card');
+      if (first) first.insertAdjacentElement('beforebegin', host);
+      else page.insertAdjacentElement('afterbegin', host);
+    }
+  }
+  // Alimentação checklist → bem-alim
+  if (subId === 'bem-alim') {
+    const existing = page.querySelector('#meal-card-host');
+    if (!existing) {
+      const host = document.createElement('div');
+      host.id = 'meal-card-host';
+      const today = new Date().toISOString().slice(0,10);
+      host.innerHTML = mealChecklistCardHTML(today);
+      const first = page.querySelector('.card');
+      if (first) first.insertAdjacentElement('beforebegin', host);
+      else page.insertAdjacentElement('afterbegin', host);
+    }
+  }
+};
+
 const _origRenderSubAreaPageV339 = renderSubAreaPage;
 renderSubAreaPage = function (subId) {
   _origRenderSubAreaPageV339.apply(this, arguments);
