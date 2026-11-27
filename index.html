@@ -7317,6 +7317,7 @@ function renderFinOverview(container) {
   // Saldo por conta/banco (acumulado, todas as transações)
   const acctMap = {};
   STATE.transactions.forEach(t => {
+    if (t.status === 'previsto' || t.projected || t.transfer) return; // só o que já aconteceu
     const key = (t.account||'').trim() || (isBenefitTxn(t) ? 'VR/VA (Benefícios)' : 'Sem conta');
     acctMap[key] = (acctMap[key]||0) + (t.type==='income' ? (t.amount||0) : -(t.amount||0));
   });
@@ -7404,18 +7405,17 @@ function renderFinOverview(container) {
       </div>`;
     })()}
 
-    ${acctEntries.filter(([n]) => n !== 'Sem conta').length ? `
+    ${acctEntries.length ? `
     <div class="card mb-4">
-      <div class="font-semibold mb-1">Movimento por conta</div>
-      <div class="text-xs text-muted mb-3">Entradas menos saídas lançadas em cada conta desde o primeiro lançamento. <strong>Não é o saldo do banco</strong> — só bate se tudo daquela conta estiver lançado.</div>
+      <div class="font-semibold mb-3">Saldo por conta / banco</div>
       <div class="grid grid-3" style="gap:12px">
-        ${acctEntries.filter(([n]) => n !== 'Sem conta').map(([name,bal]) => `
+        ${acctEntries.map(([name,bal]) => `
           <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
             <div class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>
             <div class="font-semibold" style="font-variant-numeric:tabular-nums;color:${bal>=0?'var(--text)':'var(--danger)'}">${fmtBRL(bal)}</div>
           </div>`).join('')}
       </div>
-      ${acctEntries.some(([n]) => n === 'Sem conta') ? `<div class="text-xs text-muted mt-2">${STATE.transactions.filter(t => !(t.account||'').trim() && !isBenefitTxn(t)).length} lançamento(s) sem conta não aparecem aqui. <a href="#" onclick="finTxGoto({acct:'(sem conta)',period:'all'});return false">Ver</a></div>` : ''}
+      <div class="text-xs text-muted mt-2">Saldo acumulado por conta (todos os lançamentos já realizados; previstos e transferências não entram).</div>
     </div>` : ''}
 
     <div class="grid grid-2">
@@ -8289,7 +8289,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.45.0';
+const APP_VERSION = '3.45.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14743,8 +14743,7 @@ function finTxFiltered() {
     && (finTxF.method === 'all' || (finTxF.method === '(nenhuma)' ? !t.method : t.method === finTxF.method))
     && (finTxF.acct === 'all' || _ftAcct(t) === finTxF.acct)
     && (finTxF.cat === 'all' || t.category === finTxF.cat)
-    && _ftPeriodOk(t)
-    && (!q || _ftNorm(t.desc).includes(q))
+    && (q ? _ftNorm(t.desc).includes(q) : _ftPeriodOk(t))
   ).sort((a,b) => b.date.localeCompare(a.date));
 }
 function finTxSet(field, value) { finTxF[field] = value; _finTxRerender(); }
@@ -14854,7 +14853,7 @@ renderFinTransactions = function (container) {
       ${sel('cat', [['all','Toda categoria'], ...Object.keys(CAT_LABELS).map(c => [c, _catLabel(c)])])}
       ${isFiltered ? `<button class="btn btn-ghost btn-sm" onclick="finTxReset()">Limpar filtros</button>` : ''}
     </div>
-    <div class="text-sm mt-2"><strong>${list.length}</strong> lançamento(s) · despesas <strong style="color:var(--danger)">${fmtBRL(exp)}</strong> · receitas <strong style="color:var(--success)">${fmtBRL(inc)}</strong></div>
+    ${finTxF.q ? '<div class="text-xs text-muted mt-2">🔎 A busca procura em todos os períodos, inclusive previstos futuros.</div>' : ''}<div class="text-sm mt-2"><strong>${list.length}</strong> lançamento(s) · despesas <strong style="color:var(--danger)">${fmtBRL(exp)}</strong> · receitas <strong style="color:var(--success)">${fmtBRL(inc)}</strong></div>
     ${list.length ? `<details class="mt-2"><summary class="text-xs" style="cursor:pointer;color:var(--text2)">✎ Corrigir todos os ${list.length} filtrados de uma vez</summary>
       <div class="flex gap-2 mt-2" style="flex-wrap:wrap;align-items:center">
         <datalist id="fintx-acct-list">${[...new Set([...cardNames, ...accts])].map(a => `<option value="${_esc(a)}">`).join('')}</datalist>
@@ -15121,6 +15120,9 @@ finProjection = function () {
   const extra = p.extraMode === 'avg' ? extraAvg : 0;
   const calc = (ym, withEvents) => {
     const it = finMonthItems(ym);
+    // previsto avulso (ex.: exame, viagem) só entra no mês dele, não no mês típico
+    const oneOff = t => !t.projected && t.status === 'previsto' && (!t.recurrence || t.recurrence === 'none') && !t.installmentTotal;
+    if (!withEvents) { it.exp = it.exp.filter(t => !oneOff(t)); it.inc = it.inc.filter(t => !oneOff(t)); }
     const incItems = it.inc.filter(t => !(+p.netSalary > 0 && t.category === 'salario'));
     const ev = withEvents ? p.events.filter(e => e.month === ym) : [];
     const evIn = ev.filter(e => e.type !== 'expense').reduce((s,e) => s + (+e.amount || 0), 0);
@@ -15212,7 +15214,7 @@ renderFinProjection = function (container) {
   const kindL = t => t.recurrence === 'installment' || t.installmentTotal ? 'parcela' : t.recurrence === 'weekly' ? 'semanal' : t.recurrence === 'annual' ? 'anual' : t.status === 'previsto' && !t.projected ? 'previsto' : 'mensal';
   const fixGroups = {};
   b.fixItems.forEach(t => { const src = _fSrcId(t); const k = src + '|' + kindL(t); (fixGroups[k] = fixGroups[k] || { t, src, n: 0, v: 0 }); fixGroups[k].n++; fixGroups[k].v += +t.amount || 0; });
-  const fixRows = Object.values(fixGroups).sort((a,c) => c.v - a.v).map(g => line(`${_esc(g.t.desc)} <span class="text-xs text-muted">(${kindL(g.t)}${g.n > 1 ? ` ×${g.n}` : ''})</span>`, g.v,
+  const fixRows = Object.values(fixGroups).sort((a,c) => c.v - a.v).map(g => line(`${_esc(g.t.desc)} <span class="text-xs text-muted">(${kindL(g.t)}${g.n > 1 ? ` ×${g.n}` : ''} · ${(STATE.transactions.find(t => t.id === g.src) || g.t).date.split('-').reverse().join('/')}${String(g.t.id).startsWith('proj-') ? ', lançado nessa data e repetido' : ''})</span>`, g.v,
     STATE.transactions.some(t => t.id === g.src) ? `<button class="btn-icon" style="font-size:.75rem" title="Editar" onclick="editTransaction('${g.src}')">✎</button><button class="btn-icon" style="font-size:.75rem" title="Não é fixo — tirar daqui" onclick="finTxToggleFixed('${g.src}')">✕</button>` : '')).join('');
   const usedCats = new Set(Object.keys(pr.vr.byCat));
   const catOpts = Object.keys(CAT_LABELS).filter(c => !usedCats.has(c) && !['salario','freelance','investimento'].includes(c)).map(c => `<option value="${c}">${_catLabel(c)}</option>`).join('');
@@ -15232,6 +15234,9 @@ renderFinProjection = function (container) {
     <div class="text-xs text-muted mb-1">Gastos avulsos fora do VR/VA, média por mês. Digite um valor para usar sua estimativa; apague para voltar à média.</div>
     ${varRows || '<div class="text-sm text-muted">Sem gastos variáveis lançados.</div>'}
     <div class="flex gap-2 mt-1" style="align-items:center"><select class="form-select" id="finvar-newcat" style="max-width:220px;padding:4px 8px;font-size:.8rem"><option value="">+ estimar outra categoria</option>${catOpts}</select><button class="btn btn-ghost btn-sm" onclick="finPlanVarAdd()">Adicionar</button></div>
+    ${(() => { const d0 = new Date(), from = _fYm(d0.getFullYear(), d0.getMonth() + 1), to = _fYm(d0.getFullYear(), d0.getMonth() + 12);
+      const oo = STATE.transactions.filter(t => t.status === 'previsto' && (!t.recurrence || t.recurrence === 'none') && !t.installmentTotal && !t.transfer && !isBenefitTxn(t) && t.date && t.date.slice(0,7) >= from && t.date.slice(0,7) <= to).sort((x,y) => x.date.localeCompare(y.date));
+      return oo.length ? `<div class="text-xs font-semibold mt-3 mb-1" style="color:var(--text2)">PREVISTOS AVULSOS · não entram no mês típico, só no mês deles (veja "Mês a mês")</div>` + oo.map(t => line(`${_esc(t.desc)} <span class="text-xs text-muted">(${t.type === 'income' ? 'entrada' : 'saída'} · ${t.date.split('-').reverse().join('/')})</span>`, +t.amount || 0, `<button class="btn-icon" style="font-size:.75rem" title="Editar" onclick="editTransaction('${t.id}')">✎</button>`)).join('') : ''; })()}
     <div class="flex justify-between text-sm mt-3" style="border-top:1px solid var(--border);padding-top:6px"><strong>SOBRA</strong><strong style="color:${sobraCol}">${fmtBRL(b.sobra)}</strong></div>
   </details>`;
 
