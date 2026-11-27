@@ -9375,7 +9375,7 @@ function renderSubAreaPage(subId) {
   const subHabits = STATE.habits.filter(h => h.sub === subId && h.active !== false);
   const subRecords= (STATE.subHistory||[]).filter(r => r.sub === subId).sort((a,b)=>b.date.localeCompare(a.date));
   const subIdeas  = STATE.inbox.filter(i => i.sub === subId);
-  const isAlimentacao = /aliment/i.test(sub.name || '');
+  const isAlimentacao = subId === 'bem-saude' || /aliment/i.test(sub.name || '');
 
   el.innerHTML = `<div class="page">
     <div style="cursor:pointer;color:var(--text2);font-size:.85rem;margin-bottom:16px" onclick="navigate('dim_${dim.id}')">← ${dim.name}</div>
