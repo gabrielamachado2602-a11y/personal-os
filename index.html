@@ -7614,7 +7614,8 @@ function finGoalProjection(g) {
   const PMT = g.monthlyContribution || 0;
   const annual = (g.annualRate || 0) / 100;
   const i = annual > 0 ? Math.pow(1+annual, 1/12) - 1 : 0; // taxa mensal equivalente à anual (juros compostos)
-  const n = g.deadline ? Math.max(0, Math.ceil((new Date(g.deadline) - new Date()) / (30*24*60*60*1000))) : 0;
+  // meses de calendário até o mês do prazo (um aporte por mês); igual em todas as telas
+  const n = g.deadline ? (() => { const d = new Date(g.deadline + 'T12:00:00'), t = new Date(); return Math.max(0, (d.getFullYear() - t.getFullYear()) * 12 + (d.getMonth() - t.getMonth())); })() : 0;
   // Valor futuro: PV capitaliza + aportes ao fim de cada mês
   let fv;
   if (i > 0) fv = PV*Math.pow(1+i,n) + (n>0 ? PMT*((Math.pow(1+i,n)-1)/i) : 0);
@@ -7704,7 +7705,7 @@ function renderFinGoals(container) {
       ? `<div class="empty"><div class="empty-icon">◇</div><p>Nenhuma meta financeira ainda.<br><button class="btn btn-primary btn-sm mt-2" onclick="openFinGoalModal()">Criar primeira meta</button></p></div>`
       : STATE.finGoals.map(g => {
           const pct = g.target > 0 ? Math.min(100, Math.round((g.current||0)/g.target*100)) : 0;
-          const monthsLeft = g.deadline ? Math.max(0, Math.ceil((new Date(g.deadline) - new Date()) / (30*24*60*60*1000))) : null;
+          const monthsLeft = g.deadline ? finGoalProjection(g).n : null;
           const hasProjection = (g.monthlyContribution||0) > 0 || (g.annualRate||0) > 0;
           // Fallback simples só quando NÃO há projeção com rendimento configurada
           const monthlyNeeded = (!hasProjection && monthsLeft > 0 && g.target > (g.current||0)) ? (g.target - g.current) / monthsLeft : null;
@@ -8294,7 +8295,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.46.0';
+const APP_VERSION = '3.47.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -14509,7 +14510,7 @@ function finAlerts(pr) {
   else if (pr.vr.months < 3)
     out.push({ sev:'info', txt:`A média dos gastos variáveis usa só ${pr.vr.months} mês(es). Fica mais confiável com 3 meses de lançamentos.` });
   if (!(+p.netSalary > 0)) out.push({ sev:'warn', txt:'Informe o salário líquido em "Seu perfil financeiro" — sem ele a projeção não tem entrada.' });
-  if (+p.savingsTarget > 0 && pr.baseSobra < +p.savingsTarget)
+  if (+p.savingsTarget > 0 && pr.baseSobra < +p.savingsTarget && !(typeof finGoalAportes === 'function' && finGoalAportes().total > 0))
     out.push({ sev:'warn', txt:`Sua meta de poupança é ${fmtBRL(+p.savingsTarget)}/mês, mas no mês típico sobram ${fmtBRL(pr.baseSobra)} — faltam ${fmtBRL(+p.savingsTarget - pr.baseSobra)}.` });
   if (pr.baseSobra < 0) out.push({ sev:'crit', txt:`Seu custo de vida estimado é maior que a entrada: faltam ${fmtBRL(-pr.baseSobra)} por mês. A reserva cobriria essa diferença.` });
   // Categoria do mês atual que já passou da média
@@ -15171,12 +15172,11 @@ function finGoalsStatus(pr) {
   finGoalsSyncFromReserves();
   const goals = (STATE.finGoals || []).filter(g => (+g.target || 0) > 0)
     .slice().sort((a,b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
-  const hits = _fSimGoalsOwnRate(goals, pr.baseSobra);
-  return goals.map((g, i) => { const gp = finGoalProjection(g); return { g, need: gp.pmtNeeded, n: gp.n, hit: hits[i] }; });
+  return goals.map(g => { const gp = finGoalProjection(g); return { g, need: gp.pmtNeeded, n: gp.n, pmt: +g.monthlyContribution || 0, hit: _fGoalEta(g) }; });
 }
 function _fHitText(hit, n) {
   if (hit === 0) return '<span style="color:var(--success)">✓ já atingida</span>';
-  if (hit == null) return '<span style="color:var(--danger)">não chega em 3 anos nesse ritmo</span>';
+  if (hit == null) return '<span style="color:var(--danger)">sem aporte mensal definido, não chega</span>';
   const d = new Date(), lbl = _fYmLabel(_fYm(d.getFullYear(), d.getMonth() + hit));
   if (!n) return `chega em <strong>${lbl}</strong>`;
   return hit <= n ? `chega em <strong>${lbl}</strong> <span style="color:var(--success)">· dentro do prazo</span>`
@@ -15188,18 +15188,22 @@ renderFinProjection = function (container) {
   finGoalsSyncFromReserves();
   const pr = finProjection(), p = pr.p, b = pr.base;
   const last = pr.rows[pr.rows.length - 1];
+  const ap = finGoalAportes(), aportes = ap.total, livre = b.sobra - aportes;
+  let sG = pr.reserveTotal; pr.rows.forEach(() => { sG = sG * (1 + pr.rate) + aportes; });
   const inp = (val, on, extra='') => `<input class="form-input" style="padding:4px 8px;font-size:.8rem" value="${val===0?'0':_esc(val)}" onchange="${on}" ${extra}>`;
   const nextLbl = _fYmLabel(b.ym);
   const sobraCol = b.sobra < 0 ? 'var(--danger)' : (+p.savingsTarget > 0 && b.sobra < +p.savingsTarget ? 'var(--accent)' : 'var(--success)');
   const big = (label, val, sub, col) => `<div class="card" style="padding:14px"><div class="stat-label">${label}</div><div class="stat-value" style="font-size:1.5rem${col ? `;color:${col}` : ''}">${val}</div>${sub ? `<div class="text-xs text-muted">${sub}</div>` : ''}</div>`;
 
-  const head = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px">
+  const head = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px">
       ${big('Entra por mês', fmtBRL(b.income), 'salário + receitas fixas')}
       ${big('Sai por mês', fmtBRL(b.outFix + b.outVar), `fixos ${fmtBRL(b.outFix)} + variáveis ${fmtBRL(b.outVar)}`)}
-      ${big('Sobra por mês', fmtBRL(b.sobra), +p.savingsTarget > 0 ? `sua meta de poupança: ${fmtBRL(+p.savingsTarget)}` : 'defina sua meta de poupança no perfil', sobraCol)}
+      ${big('Guardar nas metas', fmtBRL(aportes), aportes > 0 ? `aportes mensais de ${ap.list.filter(g => +g.monthlyContribution > 0).length} meta(s)` : 'defina o aporte mensal em cada meta')}
+      ${big('Livre para gastar', fmtBRL(livre), `sobra ${fmtBRL(b.sobra)} − metas ${fmtBRL(aportes)}`, livre < 0 ? 'var(--danger)' : 'var(--success)')}
     </div>
     <div class="text-sm mb-3">Mês típico calculado com ${nextLbl} (o que já está lançado para ele + a média dos seus variáveis).
-      ${pr.reserveTotal > 0 ? ` Nesse ritmo, sua reserva vai de <strong>${fmtBRL(pr.reserveTotal)}</strong> hoje para <strong>${fmtBRL(last.sA)}</strong> em ${_fYmLabel(last.ym)}.` : ''}</div>`;
+      ${pr.reserveTotal > 0 && aportes > 0 ? ` Guardando os aportes das metas, sua reserva vai de <strong>${fmtBRL(pr.reserveTotal)}</strong> hoje para <strong>${fmtBRL(sG)}</strong> em ${_fYmLabel(last.ym)} — o que sobrar do livre e você não gastar entra a mais.` : ''}
+      ${livre < 0 ? `<br><span style="color:var(--danger)">Os aportes das metas são maiores que a sobra: faltam ${fmtBRL(-livre)} por mês.</span>` : ''}</div>`;
 
   const alerts = finAlerts(pr).filter(a => a.sev !== 'info' || /meses completos|só \d/.test(a.txt)).slice(0, 3);
   const alertsHTML = alerts.length ? `<div class="card mb-3" style="padding:12px">${alerts.map(a => `<div class="text-sm" style="padding:3px 0;color:${a.sev === 'crit' ? 'var(--danger)' : a.sev === 'warn' ? 'var(--accent)' : 'var(--text2)'}">${a.sev === 'crit' ? '⛔' : a.sev === 'warn' ? '⚠' : 'ℹ'} ${a.txt}</div>`).join('')}</div>` : '';
@@ -15209,8 +15213,7 @@ renderFinProjection = function (container) {
     ${gs.map(x => `<div class="text-sm" style="padding:6px 0;border-bottom:1px solid var(--border)">
       <strong>${_esc(x.g.name)}</strong> · faltam ${fmtBRL(Math.max(0, (+x.g.target) - (+x.g.current || 0)))}
       ${x.need != null && x.need > 0 ? ` · para o prazo: <strong>${fmtBRL(x.need)}/mês</strong>` : ''}<br>
-      <span class="text-xs">Com a sobra de ${fmtBRL(b.sobra)}/mês: ${_fHitText(x.hit, x.n)}</span></div>`).join('')}
-    ${gs.length > 1 ? '<div class="text-xs text-muted mt-1">A sobra vai primeiro para a meta de prazo mais próximo.</div>' : ''}
+      <span class="text-xs">${x.pmt > 0 ? `Com o seu aporte de ${fmtBRL(x.pmt)}/mês: ` : ''}${_fHitText(x.hit, x.n)}</span></div>`).join('')}
     <div class="text-xs text-muted mt-1">O valor por mês é o mesmo da aba Metas financeiras (usa o rendimento cadastrado em cada meta).</div></div>` : '';
 
   // De onde vêm os números
@@ -15241,15 +15244,18 @@ renderFinProjection = function (container) {
     ${(() => { const d0 = new Date(), from = _fYm(d0.getFullYear(), d0.getMonth() + 1), to = _fYm(d0.getFullYear(), d0.getMonth() + 12);
       const oo = STATE.transactions.filter(t => t.status === 'previsto' && (!t.recurrence || t.recurrence === 'none') && !t.installmentTotal && !t.transfer && !isBenefitTxn(t) && t.date && t.date.slice(0,7) >= from && t.date.slice(0,7) <= to).sort((x,y) => x.date.localeCompare(y.date));
       return oo.length ? `<div class="text-xs font-semibold mt-3 mb-1" style="color:var(--text2)">PREVISTOS AVULSOS · não entram no mês típico, só no mês deles (veja "Mês a mês")</div>` + oo.map(t => line(`${_esc(t.desc)} <span class="text-xs text-muted">(${t.type === 'income' ? 'entrada' : 'saída'} · ${t.date.split('-').reverse().join('/')})</span>`, +t.amount || 0, `<button class="btn-icon" style="font-size:.75rem" title="Editar" onclick="editTransaction('${t.id}')">✎</button>`)).join('') : ''; })()}
-    <div class="flex justify-between text-sm mt-3" style="border-top:1px solid var(--border);padding-top:6px"><strong>SOBRA</strong><strong style="color:${sobraCol}">${fmtBRL(b.sobra)}</strong></div>
+    <div class="flex justify-between text-sm mt-3" style="border-top:1px solid var(--border);padding-top:6px"><strong>SOBRA</strong><strong>${fmtBRL(b.sobra)}</strong></div>
+    <div class="text-xs font-semibold mt-3 mb-1" style="color:var(--accent)">GUARDAR NAS METAS · ${fmtBRL(aportes)}</div>
+    ${ap.list.length ? ap.list.map(g => line(`${_esc(g.name)} <span class="text-xs text-muted">(aporte mensal da meta)</span>`, +g.monthlyContribution || 0, `<button class="btn-icon" style="font-size:.75rem" title="Editar a meta" onclick="editFinGoal('${g.id}')">✎</button>`)).join('') : '<div class="text-sm text-muted">Nenhuma meta financeira em andamento.</div>'}
+    <div class="flex justify-between text-sm mt-3" style="border-top:1px solid var(--border);padding-top:6px"><strong>LIVRE PARA GASTAR</strong><strong style="color:${livre < 0 ? 'var(--danger)' : 'var(--success)'}">${fmtBRL(livre)}</strong></div>
   </details>`;
 
   const monthly = `<details class="card mb-3"><summary class="font-semibold" style="cursor:pointer">📈 Mês a mês (12 meses)</summary>
     <div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:.8rem;font-variant-numeric:tabular-nums">
-      <thead><tr style="text-align:right;color:var(--text2)"><th style="text-align:left;padding:4px">Mês</th><th>Entra</th><th>Sai</th><th>Sobra</th><th>Reserva</th></tr></thead>
+      <thead><tr style="text-align:right;color:var(--text2)"><th style="text-align:left;padding:4px">Mês</th><th>Entra</th><th>Sai</th><th>Metas</th><th>Livre</th></tr></thead>
       <tbody>${pr.rows.map(r => `<tr style="text-align:right;border-top:1px solid var(--border)"><td style="text-align:left;padding:4px">${_fYmLabel(r.ym)}${r.ev.length ? ` <span title="${_esc(r.ev.map(e => e.label).join(', '))}">★</span>` : ''}</td>
-        <td>${fmtBRL(r.income)}</td><td>${fmtBRL(r.outFix + r.outVar)}</td><td style="color:${r.sobra < 0 ? 'var(--danger)' : 'var(--success)'}">${fmtBRL(r.sobra)}</td><td>${fmtBRL(r.sA)}</td></tr>`).join('')}</tbody></table></div>
-    <div class="text-xs text-muted mt-2">★ entrada/saída avulsa (13º, férias…). Reserva com rendimento de ${(+p.cdi).toLocaleString('pt-BR',{maximumFractionDigits:2})}% ao ano (CDI) menos ${(+p.irPct).toLocaleString('pt-BR')}% de IR.</div></details>`;
+        <td>${fmtBRL(r.income)}</td><td>${fmtBRL(r.outFix + r.outVar)}</td><td>${fmtBRL(aportes)}</td><td style="color:${r.sobra - aportes < 0 ? 'var(--danger)' : 'var(--success)'}">${fmtBRL(r.sobra - aportes)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="text-xs text-muted mt-2">★ entrada/saída avulsa (13º, férias…). Livre = entra − sai − aportes das metas. Rendimento da reserva de ${(+p.cdi).toLocaleString('pt-BR',{maximumFractionDigits:2})}% ao ano (CDI) menos ${(+p.irPct).toLocaleString('pt-BR')}% de IR.</div></details>`;
 
   // Cartões, VR/VA e perfil reaproveitam os blocos da versão anterior, cada um recolhido
   const tmp = document.createElement('div');
@@ -15281,7 +15287,7 @@ renderFinGoals = function (container) {
     const card = btn && btn.closest('.card'); if (!card) return;
     const linked = Array.isArray(x.g.reserveIds) ? x.g.reserveIds : [];
     card.insertAdjacentHTML('beforeend', `<div class="text-xs mt-3" style="border-top:1px dashed var(--border);padding-top:8px;line-height:1.7">
-      📈 Pela sua Projeção (sobra de ${fmtBRL(pr.baseSobra)}/mês): ${_fHitText(x.hit, x.n)}
+      📈 ${x.pmt > 0 ? `Com o aporte de ${fmtBRL(x.pmt)}/mês: ` : ''}${_fHitText(x.hit, x.n)}
       ${res.length ? `<br><span class="text-muted">Valor guardado acompanha o saldo de:</span> ${res.map(r => `<label style="margin-right:8px;white-space:nowrap"><input type="checkbox" ${linked.includes(r.id) ? 'checked' : ''} onchange="finGoalToggleReserve('${x.g.id}','${r.id}',this.checked)"> ${_esc(r.name || 'reserva')}</label>`).join('')}` : ''}</div>`);
   });
 };
@@ -15374,7 +15380,7 @@ function _goalMoneyBlock(goalId, color) {
   const pct = +fg.target > 0 ? Math.min(100, Math.round((+fg.current || 0) / +fg.target * 100)) : 0;
   const gp = finGoalProjection(fg);
   let hitTxt = '';
-  try { const st = finGoalsStatus(finProjection()).find(x => x.g.id === fg.id); if (st) hitTxt = `Pela sua Projeção: ${_fHitText(st.hit, st.n)}`; } catch(e) {}
+  try { const st = finGoalsStatus(finProjection()).find(x => x.g.id === fg.id); if (st) hitTxt = `${st.pmt > 0 ? `Com o aporte de ${fmtBRL(st.pmt)}/mês: ` : ''}${_fHitText(st.hit, st.n)}`; } catch(e) {}
   return `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
     <div class="flex items-center justify-between mb-1"><span class="text-xs text-muted">💰 Dinheiro desta meta</span>
       <button class="btn btn-ghost btn-sm" onclick="editFinGoal('${fg.id}')">Editar valores</button></div>
@@ -15418,6 +15424,21 @@ refreshCurrentView = function () {
     renderFinancial();
   }
 };
+
+
+// v3.47.0 — quando a meta chega com o aporte mensal dela (rendimento da própria meta)
+function _fGoalEta(g) {
+  const target = +g.target || 0; let bal = +g.current || 0;
+  if (bal >= target) return 0;
+  const a = (+g.annualRate || 0) / 100, i = a > 0 ? Math.pow(1 + a, 1/12) - 1 : 0, pmt = +g.monthlyContribution || 0;
+  if (pmt <= 0 && i <= 0) return null;
+  for (let m = 1; m <= 120; m++) { bal = bal * (1 + i) + pmt; if (bal >= target - 0.01) return m; }
+  return null;
+}
+function finGoalAportes() {
+  const list = (STATE.finGoals || []).filter(g => (+g.target || 0) > (+g.current || 0));
+  return { list, total: list.reduce((s,g) => s + (+g.monthlyContribution || 0), 0) };
+}
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
