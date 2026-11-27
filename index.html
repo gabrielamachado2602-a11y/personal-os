@@ -914,6 +914,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
     <!-- tabs -->
     <div class="tabs fin-tabs-group" id="fin-tabs">
       <button class="tab active" onclick="switchFinView('overview',this)">Visão geral</button>
+      <button class="tab" onclick="switchFinView('projection',this)">Projeção</button>
       <button class="tab" onclick="switchFinView('transactions',this)">Lançamentos</button>
       <button class="tab" onclick="switchFinView('recurring',this)">Recorrências</button>
       <button class="tab" onclick="switchFinView('goals',this)">Metas financeiras</button>
@@ -2525,7 +2526,7 @@ function load() {
     // Garantir arrays obrigatórios
     const arrays = ['inbox','goals','projects','tasks','events','habits','habitLogs',
       'energyLogs','transactions','finGoals','posts','socialMetrics','socialGoals',
-      'pendingImport','inboxRules','bodyComp','mealLog','cycleLog','subHistory','calNotes','applications','books','performanceLogs'];
+      'pendingImport','inboxRules','bodyComp','mealLog','cycleLog','subHistory','calNotes','applications','books','performanceLogs','finPlan'];
     arrays.forEach(k => { if (!Array.isArray(STATE[k])) STATE[k] = []; });
     // Migration: ensure each dimension has subs array
     STATE.dimensions.forEach(d => { if (!d.subs) d.subs = []; });
@@ -7464,7 +7465,7 @@ function renderFinOverview(container) {
     <div class="card mt-4">
       <div class="section-header" style="margin-bottom:12px">
         <div class="font-semibold">Metas financeiras</div>
-        <button class="btn btn-ghost btn-sm" onclick="switchFinView('goals', document.querySelectorAll('.fin-tabs-group .tab')[3])">Ver todas</button>
+        <button class="btn btn-ghost btn-sm" onclick="switchFinView('goals', document.querySelectorAll('.fin-tabs-group .tab')[4])">Ver todas</button>
       </div>
       ${finGoalsSummary}
     </div>` : ''}
@@ -7473,7 +7474,7 @@ function renderFinOverview(container) {
     <div class="card mt-4">
       <div class="section-header" style="margin-bottom:12px">
         <div class="font-semibold">Lançamentos recentes</div>
-        <button class="btn btn-ghost btn-sm" onclick="switchFinView('transactions', document.querySelectorAll('.fin-tabs-group .tab')[1])">Ver todos</button>
+        <button class="btn btn-ghost btn-sm" onclick="switchFinView('transactions', document.querySelectorAll('.fin-tabs-group .tab')[2])">Ver todos</button>
       </div>
       ${txns.length === 0
         ? `<div class="text-sm text-muted">Nenhum lançamento em ${months[finMonth]}. <button class="btn btn-ghost btn-sm" onclick="openTransactionModal('expense')">Adicionar →</button></div>`
@@ -8288,7 +8289,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.40.1';
+const APP_VERSION = '3.41.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -9354,6 +9355,7 @@ function renderSubAreaPage(subId) {
       </div>
       <div class="tabs fin-tabs-group" id="fin-tabs-sub">
         <button class="tab active" onclick="switchFinView('overview',this)">Visão geral</button>
+      <button class="tab" onclick="switchFinView('projection',this)">Projeção</button>
         <button class="tab" onclick="switchFinView('transactions',this)">Lançamentos</button>
         <button class="tab" onclick="switchFinView('recurring',this)">Recorrências</button>
         <button class="tab" onclick="switchFinView('goals',this)">Metas financeiras</button>
@@ -14300,6 +14302,409 @@ renderBooks = function () {
   const pg = document.getElementById('page-books');
   if (host && pg && currentPage === 'subarea') { while (pg.firstChild) host.appendChild(pg.firstChild); }
 };
+// ── v3.41.0 — Projeção financeira (Fase 1) ────────────────────────────────
+// Tudo calculado no aparelho. STATE.finPlan = [{id:'main', ...}] (lista com id → sincroniza pelo Drive).
+function finPlan() {
+  if (!Array.isArray(STATE.finPlan)) STATE.finPlan = [];
+  let p = STATE.finPlan.find(x => x && x.id === 'main');
+  if (!p) {
+    p = { id:'main', netSalary:0, payDay:5, benefitMonthly:0, savingsTarget:0, cdi:13.65, irPct:17.5,
+          cutPct:15, extraMode:'none', cards:[], reserves:[], events:[], varManual:{} };
+    STATE.finPlan.push(p);
+  }
+  ['cards','reserves','events'].forEach(k => { if (!Array.isArray(p[k])) p[k] = []; });
+  if (!p.varManual || typeof p.varManual !== 'object') p.varManual = {};
+  return p;
+}
+const FIN_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const _fYm = (y, m) => { const d = new Date(y, m, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; };
+const _fYmLabel = ym => { const [y,m] = ym.split('-'); return `${FIN_MESES[+m-1]}/${y.slice(2)}`; };
+const _fDs = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const _fDdmm = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+const _fRealized = t => !t.projected && t.status !== 'previsto';
+const _fRecurring = t => ['monthly','weekly','annual'].includes(t.recurrence);
+const FIN_NOT_SPEND = new Set(['investimento']);
+function _fMonthsBack(n) {
+  const d = new Date(), out = [];
+  for (let i = 1; i <= n; i++) out.push(_fYm(d.getFullYear(), d.getMonth() - i));
+  return out;
+}
+
+// Gasto variável: média dos últimos 3 meses completos (com algum lançamento), por categoria.
+// Mês inteiro em vez de semanas porque o mercado é feito uma vez por mês.
+function finVariableAvg() {
+  const p = finPlan();
+  const active = _fMonthsBack(3).filter(ym => STATE.transactions.some(t => t.date && t.date.startsWith(ym) && _fRealized(t)));
+  const sums = {};
+  STATE.transactions.forEach(t => {
+    if (t.type !== 'expense' || !t.date || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t)
+        || t.recurrence === 'installment' || FIN_NOT_SPEND.has(t.category)) return;
+    if (!active.includes(t.date.slice(0,7))) return;
+    const c = t.category || 'outros';
+    sums[c] = (sums[c] || 0) + (+t.amount || 0);
+  });
+  const n = active.length || 1;
+  const cats = new Set([...Object.keys(sums), ...Object.keys(p.varManual).filter(k => p.varManual[k] !== '' && p.varManual[k] != null)]);
+  const byCat = {};
+  cats.forEach(c => {
+    const avg = (sums[c] || 0) / n;
+    const man = p.varManual[c];
+    const has = man !== undefined && man !== '' && man != null && !isNaN(+man);
+    byCat[c] = { avg, manual: has ? +man : null, value: has ? +man : avg };
+  });
+  return { months: active.length, byCat, total: Object.values(byCat).reduce((s,x) => s + x.value, 0) };
+}
+
+function _fRecurringTemplates(type) {
+  const seen = new Map();
+  STATE.transactions
+    .filter(t => t.type === type && _fRecurring(t) && !isBenefitTxn(t) && t.date)
+    .sort((a,b) => a.date.localeCompare(b.date))
+    .forEach(t => seen.set((t.desc||'').trim().toLowerCase() + '|' + t.recurrence, t));
+  return [...seen.values()];
+}
+// Compromissos de um mês futuro: recorrências (mensal, semanal ×52/12, anual no mês) + parcelas e previstos já lançados.
+function finFixedForMonth(ym, type) {
+  const m = +ym.slice(5,7);
+  let total = 0; const items = [];
+  _fRecurringTemplates(type).forEach(t => {
+    if (t.date.slice(0,7) > ym) return;
+    if (t.recurUntil && t.recurUntil.slice(0,7) < ym) return;
+    let v = +t.amount || 0;
+    if (t.recurrence === 'weekly') v = v * 52 / 12;
+    else if (t.recurrence === 'annual' && +t.date.slice(5,7) !== m) return;
+    total += v; items.push({ desc: t.desc, v, cat: t.category, rec: t.recurrence });
+  });
+  STATE.transactions.forEach(t => {
+    if (t.type !== type || !t.date || !t.date.startsWith(ym) || isBenefitTxn(t) || _fRecurring(t)) return;
+    if (t.recurrence === 'installment' || t.status === 'previsto') {
+      total += +t.amount || 0; items.push({ desc: t.desc, v: +t.amount || 0, cat: t.category, rec: t.recurrence || 'previsto' });
+    }
+  });
+  return { total, items };
+}
+
+function finExtraAvg() {
+  const months = _fMonthsBack(6);
+  const s = STATE.transactions.filter(t => t.type === 'income' && t.category === 'freelance' && t.date && _fRealized(t)
+    && months.includes(t.date.slice(0,7)) && !isBenefitTxn(t)).reduce((a,t) => a + (+t.amount || 0), 0);
+  return s / 6;
+}
+
+function finBenefitStats() {
+  const p = finPlan();
+  const months = _fMonthsBack(3);
+  const inM = {}, outM = {}, foodCash = {};
+  STATE.transactions.forEach(t => {
+    if (!t.date || !_fRealized(t)) return;
+    const ym = t.date.slice(0,7); if (!months.includes(ym)) return;
+    if (isBenefitTxn(t)) {
+      if (t.type === 'income') inM[ym] = (inM[ym]||0) + (+t.amount||0);
+      else outM[ym] = (outM[ym]||0) + (+t.amount||0);
+    } else if (t.type === 'expense' && t.category === 'alimentacao') foodCash[ym] = (foodCash[ym]||0) + (+t.amount||0);
+  });
+  const avg = o => { const v = Object.values(o); return v.length ? v.reduce((a,b)=>a+b,0) / v.length : 0; };
+  const credit = +p.benefitMonthly > 0 ? +p.benefitMonthly : avg(inM);
+  return { credit, creditFromData: !(+p.benefitMonthly > 0), spend: avg(outM), foodCash: Object.keys(foodCash).length ? Object.values(foodCash).reduce((a,b)=>a+b,0) / months.length : 0 };
+}
+
+function _fNetMonthlyRate(cdiPct) {
+  const p = finPlan();
+  const r = Math.pow(1 + (+p.cdi || 0) / 100, 1/12) - 1;
+  return r * ((+cdiPct || 100) / 100) * (1 - (+p.irPct || 0) / 100);
+}
+
+function finProjection() {
+  const p = finPlan();
+  const vr = finVariableAvg();
+  const reserveTotal = p.reserves.reduce((s,r) => s + (+r.balance || 0), 0);
+  const rate = reserveTotal > 0
+    ? p.reserves.reduce((s,r) => s + (+r.balance || 0) * _fNetMonthlyRate(r.cdiPct), 0) / reserveTotal
+    : _fNetMonthlyRate(100);
+  const extraAvg = finExtraAvg();
+  const extra = p.extraMode === 'avg' ? extraAvg : 0;
+  const d = new Date();
+  const incomeFor = ym => {
+    const inc = finFixedForMonth(ym, 'income');
+    const rec = inc.items.filter(it => !(+p.netSalary > 0 && it.cat === 'salario')).reduce((s,it) => s + it.v, 0);
+    return (+p.netSalary || 0) + rec + extra;
+  };
+  // Mês típico (próximo mês, sem eventos avulsos)
+  const nextYm = _fYm(d.getFullYear(), d.getMonth() + 1);
+  const baseIncome = incomeFor(nextYm);
+  const baseFixed = finFixedForMonth(nextYm, 'expense');
+  const baseCost = baseFixed.total + vr.total;
+  const baseSobra = baseIncome - baseCost;
+  const rows = [];
+  let sA = reserveTotal, sM = reserveTotal, sC = reserveTotal;
+  for (let i = 1; i <= 12; i++) {
+    const ym = _fYm(d.getFullYear(), d.getMonth() + i);
+    const ev = p.events.filter(e => e.month === ym);
+    const evIn = ev.filter(e => e.type !== 'expense').reduce((s,e) => s + (+e.amount || 0), 0);
+    const evOut = ev.filter(e => e.type === 'expense').reduce((s,e) => s + (+e.amount || 0), 0);
+    const income = incomeFor(ym) + evIn;
+    const outFix = finFixedForMonth(ym, 'expense').total + evOut;
+    const outVar = vr.total;
+    const sobra = income - outFix - outVar;
+    const sobraCut = income - outFix - outVar * (1 - (+p.cutPct || 0) / 100);
+    sA = sA * (1 + rate) + sobra;
+    sM = sM * (1 + rate) + (+p.savingsTarget || 0) + evIn - evOut;
+    sC = sC * (1 + rate) + sobraCut;
+    rows.push({ ym, income, outFix, outVar, sobra, sA, sM, sC, ev });
+  }
+  return { p, vr, rows, reserveTotal, rate, extraAvg, baseIncome, baseFixed, baseCost, baseSobra };
+}
+
+// ── Cartões: ciclo de fatura ──
+function _fClamp(y, m, d) { return Math.min(d, new Date(y, m + 1, 0).getDate()); }
+function cardCycle(card, today) {
+  today = today || new Date();
+  const cd = +card.closeDay || 1, dd = +card.dueDay || 10;
+  const y = today.getFullYear(), m = today.getMonth();
+  const t0 = new Date(y, m, today.getDate());
+  let nc = new Date(y, m, _fClamp(y, m, cd));
+  if (t0 >= nc) nc = new Date(y, m + 1, _fClamp(y, m + 1, cd)); // compra no dia do fechamento já vai para a próxima
+  const lc = new Date(nc.getFullYear(), nc.getMonth() - 1, _fClamp(nc.getFullYear(), nc.getMonth() - 1, cd));
+  const pc = new Date(lc.getFullYear(), lc.getMonth() - 1, _fClamp(lc.getFullYear(), lc.getMonth() - 1, cd));
+  const dueAfter = c => { const mm = dd > c.getDate() ? c.getMonth() : c.getMonth() + 1; return new Date(c.getFullYear(), mm, _fClamp(c.getFullYear(), mm, dd)); };
+  return { nextClose: nc, lastClose: lc, prevClose: pc, openDue: dueAfter(nc), closedDue: dueAfter(lc), today: t0 };
+}
+function _fCardTxns(card, cards) {
+  const name = (card.name || '').trim().toLowerCase();
+  const primary = cards.find(c => c.primary) || cards[0];
+  return STATE.transactions.filter(t => {
+    if (t.type !== 'expense' || t.method !== 'credito' || !t.date) return false;
+    const acc = (t.account || '').trim().toLowerCase();
+    if (acc && name && (acc.includes(name) || name.includes(acc))) return true;
+    if (!acc || !cards.some(c => { const n = (c.name||'').trim().toLowerCase(); return n && (acc.includes(n) || n.includes(acc)); }))
+      return card === primary; // crédito sem cartão identificado → cartão principal
+    return false;
+  });
+}
+function cardStatus(card, cards) {
+  const cy = cardCycle(card);
+  const tx = _fCardTxns(card, cards);
+  const inRange = (a, b) => tx.filter(t => t.date >= _fDs(a) && t.date < _fDs(b)).reduce((s,t) => s + (+t.amount || 0), 0);
+  const open = inRange(cy.lastClose, cy.nextClose);
+  const closed = inRange(cy.prevClose, cy.lastClose);
+  const closedPending = cy.closedDue >= cy.today;
+  const used = open + (closedPending ? closed : 0);
+  return { cy, open, closed, closedPending, used, pct: +card.limit > 0 ? used / +card.limit * 100 : 0 };
+}
+
+// ── Alertas ──
+function finAlerts(pr) {
+  const out = [];
+  const p = pr.p;
+  if (pr.vr.months === 0 && !Object.values(pr.vr.byCat).some(x => x.manual != null))
+    out.push({ sev:'info', txt:'Ainda não há meses completos com gastos lançados. Lance seus gastos por um mês ou preencha as estimativas em "Gastos variáveis" para a projeção ficar real.' });
+  else if (pr.vr.months < 3)
+    out.push({ sev:'info', txt:`A média dos gastos variáveis usa só ${pr.vr.months} mês(es). Fica mais confiável com 3 meses de lançamentos.` });
+  if (!(+p.netSalary > 0)) out.push({ sev:'warn', txt:'Informe o salário líquido em "Seu perfil financeiro" — sem ele a projeção não tem entrada.' });
+  if (+p.savingsTarget > 0 && pr.baseSobra < +p.savingsTarget)
+    out.push({ sev:'warn', txt:`No ritmo atual sobram ${fmtBRL(pr.baseSobra)} por mês — ${fmtBRL(+p.savingsTarget - pr.baseSobra)} abaixo da sua meta de poupança.` });
+  if (pr.baseSobra < 0) out.push({ sev:'crit', txt:`Seu custo de vida estimado é maior que a entrada: faltam ${fmtBRL(-pr.baseSobra)} por mês. A reserva cobriria essa diferença.` });
+  // Categoria do mês atual que já passou da média
+  const ym = _fYm(new Date().getFullYear(), new Date().getMonth());
+  const now = {};
+  STATE.transactions.forEach(t => {
+    if (t.type !== 'expense' || !t.date || !t.date.startsWith(ym) || !_fRealized(t) || isBenefitTxn(t) || _fRecurring(t)
+        || t.recurrence === 'installment' || FIN_NOT_SPEND.has(t.category)) return;
+    now[t.category||'outros'] = (now[t.category||'outros']||0) + (+t.amount||0);
+  });
+  Object.entries(now).forEach(([c, v]) => {
+    const ref = pr.vr.byCat[c]?.value || 0;
+    if (ref > 0 && v > ref * 1.1) out.push({ sev:'warn', txt:`${_catLabel(c)}: ${fmtBRL(v)} neste mês, acima da sua média de ${fmtBRL(ref)}.` });
+  });
+  p.cards.forEach(c => {
+    const st = cardStatus(c, p.cards);
+    if (st.pct >= 70) out.push({ sev: st.pct >= 90 ? 'crit' : 'warn', txt:`Cartão ${_esc(c.name)}: ${Math.round(st.pct)}% do limite em uso.` });
+  });
+  const b = finBenefitStats();
+  if (b.foodCash > 0) out.push({ sev:'info', txt:`Em média ${fmtBRL(b.foodCash)} por mês de alimentação saíram do seu dinheiro (fora do VR/VA).` });
+  const months = pr.baseCost > 0 ? pr.reserveTotal / pr.baseCost : 0;
+  if (pr.reserveTotal > 0 && pr.baseCost > 0 && months < 6) out.push({ sev:'warn', txt:`A reserva cobre ${months.toLocaleString('pt-BR',{maximumFractionDigits:1})} meses do seu custo de vida — o usual é mirar em pelo menos 6.` });
+  return out;
+}
+
+// ── Edição do perfil ──
+function _finRerender() {
+  const c = document.getElementById('fin-view') || document.getElementById('fin-view-sub');
+  if (c && finView === 'projection') renderFinProjection(c);
+}
+function finPlanField(field, value, isNum) {
+  const p = finPlan();
+  p[field] = isNum ? (value === '' ? 0 : parseFloat(String(value).replace(',', '.')) || 0) : value;
+  save(); _finRerender();
+}
+function finPlanRowAdd(kind) {
+  const p = finPlan();
+  const base = { id: uid() };
+  if (kind === 'cards') Object.assign(base, { name:'', limit:0, closeDay:1, dueDay:10, primary: p.cards.length === 0 });
+  if (kind === 'reserves') Object.assign(base, { name:'', balance:0, cdiPct:100 });
+  if (kind === 'events') { const d = new Date(); Object.assign(base, { label:'', month: _fYm(d.getFullYear(), d.getMonth() + 1), amount:0, type:'income' }); }
+  p[kind].push(base); save(); _finRerender();
+}
+function finPlanRowDel(kind, id) {
+  const p = finPlan(); p[kind] = p[kind].filter(x => x.id !== id); save(); _finRerender();
+}
+function finPlanRowSet(kind, id, field, value) {
+  const p = finPlan(); const r = p[kind].find(x => x.id === id); if (!r) return;
+  const nums = ['limit','closeDay','dueDay','balance','cdiPct','amount'];
+  if (field === 'primary') p[kind].forEach(x => x.primary = (x.id === id));
+  else r[field] = nums.includes(field) ? (parseFloat(String(value).replace(',', '.')) || 0) : value;
+  save(); _finRerender();
+}
+function finPlanVarSet(cat, value) {
+  const p = finPlan();
+  if (value === '' || value == null) delete p.varManual[cat];
+  else p.varManual[cat] = parseFloat(String(value).replace(',', '.')) || 0;
+  save(); _finRerender();
+}
+function finPlanVarAdd() {
+  const sel = document.getElementById('finvar-newcat'); if (!sel || !sel.value) return;
+  const p = finPlan(); if (p.varManual[sel.value] == null) p.varManual[sel.value] = 0;
+  save(); _finRerender();
+}
+
+// ── Tela ──
+function renderFinProjection(container) {
+  const pr = finProjection();
+  const p = pr.p;
+  const pctSave = pr.baseIncome > 0 ? pr.baseSobra / pr.baseIncome * 100 : 0;
+  const monthsRes = pr.baseCost > 0 ? pr.reserveTotal / pr.baseCost : 0;
+  const last = pr.rows[pr.rows.length - 1];
+  const f1 = v => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+  const inp = (val, on, extra='') => `<input class="form-input" style="padding:4px 8px;font-size:.8rem" value="${val===0?'0':_esc(val)}" onchange="${on}" ${extra}>`;
+  const stat = (label, val, sub, col) => `<div class="card" style="padding:12px"><div class="stat-label">${label}</div><div class="stat-value" style="font-size:1.35rem${col?`;color:${col}`:''}">${val}</div>${sub?`<div class="text-xs text-muted">${sub}</div>`:''}</div>`;
+  const sevCol = { crit:'var(--danger)', warn:'var(--accent)', info:'var(--text2)' };
+  const alerts = finAlerts(pr);
+
+  const statsHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+    ${stat('Entradas / mês', fmtBRL(pr.baseIncome), p.extraMode==='avg' ? 'inclui média de renda extra' : 'sem renda extra')}
+    ${stat('Custo de vida / mês', fmtBRL(pr.baseCost), `fixos ${fmtBRL(pr.baseFixed.total)} · variáveis ${fmtBRL(pr.vr.total)}`)}
+    ${stat('Sobra / mês', fmtBRL(pr.baseSobra), `${f1(pctSave)}% da renda${+p.savingsTarget>0?` · meta ${fmtBRL(+p.savingsTarget)}`:''}`, pr.baseSobra < 0 ? 'var(--danger)' : (+p.savingsTarget>0 && pr.baseSobra < +p.savingsTarget ? 'var(--accent)' : 'var(--success)'))}
+    ${stat('Reserva hoje', fmtBRL(pr.reserveTotal), pr.baseCost>0 ? `cobre ${f1(monthsRes)} meses de custo` : '')}
+    ${stat('Rendimento / mês', fmtBRL(pr.reserveTotal * pr.rate), `líquido estimado (IR ${f1(+p.irPct)}%)`)}
+  </div>`;
+
+  const alertsHTML = alerts.length ? `<div class="card mb-3"><div class="font-semibold mb-2">🔎 O que olhar</div>
+    ${alerts.map(a => `<div class="text-sm" style="padding:5px 0;border-bottom:1px solid var(--border);color:${sevCol[a.sev]}">${a.sev==='crit'?'⛔':a.sev==='warn'?'⚠':'ℹ'} ${a.txt}</div>`).join('')}</div>` : '';
+
+  const projHTML = `<div class="card mb-3">
+    <div class="font-semibold mb-1">📈 Próximos 12 meses</div>
+    <div class="text-sm mb-3">Em ${_fYmLabel(last.ym)} a reserva estaria em:
+      <strong>${fmtBRL(last.sA)}</strong> no ritmo atual ·
+      <strong>${fmtBRL(last.sM)}</strong> poupando exatamente a meta${+p.savingsTarget>0?` (${fmtBRL(+p.savingsTarget)}/mês)`:' (defina a meta)'} ·
+      <strong>${fmtBRL(last.sC)}</strong> cortando ${f1(+p.cutPct)}% dos variáveis.</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem;font-variant-numeric:tabular-nums">
+      <thead><tr style="text-align:right;color:var(--text2)"><th style="text-align:left;padding:4px">Mês</th><th>Entradas</th><th>Fixos</th><th>Variáveis</th><th>Sobra</th><th>Reserva (ritmo)</th><th>Reserva (meta)</th><th>Reserva (cortes)</th></tr></thead>
+      <tbody>${pr.rows.map(r => `<tr style="text-align:right;border-top:1px solid var(--border)">
+        <td style="text-align:left;padding:4px">${_fYmLabel(r.ym)}${r.ev.length?` <span class="text-xs" title="${_esc(r.ev.map(e=>e.label).join(', '))}">★</span>`:''}</td>
+        <td>${fmtBRL(r.income)}</td><td>${fmtBRL(r.outFix)}</td><td>${fmtBRL(r.outVar)}</td>
+        <td style="color:${r.sobra<0?'var(--danger)':'var(--success)'}">${fmtBRL(r.sobra)}</td>
+        <td>${fmtBRL(r.sA)}</td><td>${fmtBRL(r.sM)}</td><td>${fmtBRL(r.sC)}</td></tr>`).join('')}</tbody>
+    </table></div>
+    <div class="text-xs text-muted mt-2">Fixos = recorrências, parcelas e previstos lançados. Variáveis = média dos últimos meses (ou sua estimativa). ★ = evento avulso (13º, férias…). Rendimento com CDI de ${(+p.cdi).toLocaleString('pt-BR',{maximumFractionDigits:2})}% a.a. e IR de ${f1(+p.irPct)}% — ajuste em "Seu perfil financeiro".</div>
+  </div>`;
+
+  const usedCats = new Set(Object.keys(pr.vr.byCat));
+  const catOpts = Object.keys(CAT_LABELS).filter(c => !usedCats.has(c) && !['salario','freelance','investimento'].includes(c))
+    .map(c => `<option value="${c}">${_catLabel(c)}</option>`).join('');
+  const varHTML = `<div class="card mb-3">
+    <div class="font-semibold mb-1">🧾 Gastos variáveis por mês</div>
+    <div class="text-xs text-muted mb-2">Média de ${pr.vr.months || 0} mês(es) completo(s) de lançamentos (sem VR/VA, recorrências e parcelas). Preencha "Sua estimativa" para usar outro valor; apague para voltar à média.</div>
+    ${Object.keys(pr.vr.byCat).length ? Object.entries(pr.vr.byCat).sort((a,b)=>b[1].value-a[1].value).map(([c,x]) => `
+      <div class="flex items-center justify-between" style="gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+        <span class="text-sm" style="flex:1">${_catLabel(c)}</span>
+        <span class="text-xs text-muted" style="width:110px;text-align:right">média ${fmtBRL(x.avg)}</span>
+        <span style="width:110px">${inp(x.manual ?? '', `finPlanVarSet('${c}',this.value)`, 'placeholder="Sua estimativa" inputmode="decimal"')}</span>
+      </div>`).join('') : '<div class="text-sm text-muted">Nenhum gasto variável ainda.</div>'}
+    <div class="flex gap-2 mt-2" style="align-items:center"><select class="form-select" id="finvar-newcat" style="max-width:220px;padding:4px 8px;font-size:.8rem"><option value="">+ estimar outra categoria</option>${catOpts}</select>
+      <button class="btn btn-ghost btn-sm" onclick="finPlanVarAdd()">Adicionar</button></div>
+    <div class="text-sm mt-2"><strong>Total variável: ${fmtBRL(pr.vr.total)}/mês</strong></div>
+  </div>`;
+
+  const cardsHTML = `<div class="card mb-3">
+    <div class="flex items-center justify-between mb-2"><div class="font-semibold">💳 Cartões de crédito</div><button class="btn btn-ghost btn-sm" onclick="finPlanRowAdd('cards')">+ Cartão</button></div>
+    <div class="text-xs text-muted mb-2">Compras com forma de pagamento "Crédito" entram na fatura do cartão cujo nome aparece no campo Conta do lançamento; sem nome, vão para o cartão principal.</div>
+    ${p.cards.length ? p.cards.map(c => { const st = cardStatus(c, p.cards); return `
+      <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div class="flex gap-2" style="flex-wrap:wrap;align-items:center">
+          <span style="width:120px">${inp(c.name, `finPlanRowSet('cards','${c.id}','name',this.value)`, 'placeholder="Nome (ex.: C6)"')}</span>
+          <span class="text-xs">limite</span><span style="width:90px">${inp(c.limit||'', `finPlanRowSet('cards','${c.id}','limit',this.value)`, 'inputmode="decimal"')}</span>
+          <span class="text-xs">fecha dia</span><span style="width:52px">${inp(c.closeDay, `finPlanRowSet('cards','${c.id}','closeDay',this.value)`, 'inputmode="numeric"')}</span>
+          <span class="text-xs">vence dia</span><span style="width:52px">${inp(c.dueDay, `finPlanRowSet('cards','${c.id}','dueDay',this.value)`, 'inputmode="numeric"')}</span>
+          <label class="text-xs"><input type="radio" name="fin-primary" ${c.primary?'checked':''} onchange="finPlanRowSet('cards','${c.id}','primary',1)"> principal</label>
+          <button class="btn-icon" onclick="finPlanRowDel('cards','${c.id}')">✕</button>
+        </div>
+        <div class="text-xs mt-1" style="line-height:1.6">
+          Fatura aberta: <strong>${fmtBRL(st.open)}</strong> · fecha ${_fDdmm(st.cy.nextClose)} · vence ${_fDdmm(st.cy.openDue)}
+          ${st.closedPending ? `<br>Fatura fechada: <strong>${fmtBRL(st.closed)}</strong> · vence ${_fDdmm(st.cy.closedDue)}` : ''}
+          <br>Compras de hoje entram na fatura que vence em <strong>${_fDdmm(st.cy.openDue)}</strong>.
+          ${+c.limit>0 ? `<div class="progress-bar" style="margin-top:4px"><div class="progress-fill" style="width:${Math.min(100,st.pct)}%;background:${st.pct>=90?'var(--danger)':st.pct>=70?'var(--accent)':'var(--success)'}"></div></div><span class="text-muted">${Math.round(st.pct)}% do limite em uso</span>` : ''}
+        </div>
+      </div>`; }).join('') : '<div class="text-sm text-muted">Nenhum cartão cadastrado.</div>'}
+  </div>`;
+
+  const b = finBenefitStats();
+  const benHTML = `<div class="card mb-3">
+    <div class="font-semibold mb-1">🍽 VR/VA</div>
+    <div class="text-xs text-muted mb-2">Benefício fica fora do saldo e da projeção (só serve para alimentação). Aqui você vê se ele cobre a sua comida.</div>
+    <div class="text-sm" style="line-height:1.7">
+      Crédito médio: <strong>${fmtBRL(b.credit)}</strong>/mês ${b.creditFromData ? '<span class="text-xs text-muted">(dos lançamentos)</span>' : '<span class="text-xs text-muted">(seu valor)</span>'}<br>
+      Gasto médio no VR/VA: <strong>${fmtBRL(b.spend)}</strong>/mês<br>
+      Alimentação paga com dinheiro: <strong style="color:${b.foodCash>0?'var(--accent)':'inherit'}">${fmtBRL(b.foodCash)}</strong>/mês
+    </div>
+    <div class="flex gap-2 mt-2" style="align-items:center"><span class="text-xs">Crédito mensal (opcional)</span><span style="width:100px">${inp(+p.benefitMonthly>0?p.benefitMonthly:'', `finPlanField('benefitMonthly',this.value,true)`, 'inputmode="decimal" placeholder="média"')}</span></div>
+  </div>`;
+
+  const resHTML = p.reserves.map(r => `<div class="flex gap-2" style="flex-wrap:wrap;align-items:center;padding:4px 0">
+      <span style="width:150px">${inp(r.name, `finPlanRowSet('reserves','${r.id}','name',this.value)`, 'placeholder="Onde (ex.: caixinha)"')}</span>
+      <span class="text-xs">saldo</span><span style="width:110px">${inp(r.balance||'', `finPlanRowSet('reserves','${r.id}','balance',this.value)`, 'inputmode="decimal"')}</span>
+      <span class="text-xs">% do CDI</span><span style="width:60px">${inp(r.cdiPct, `finPlanRowSet('reserves','${r.id}','cdiPct',this.value)`, 'inputmode="decimal"')}</span>
+      <button class="btn-icon" onclick="finPlanRowDel('reserves','${r.id}')">✕</button></div>`).join('');
+  const evHTML = p.events.slice().sort((a,b)=>a.month.localeCompare(b.month)).map(e => `<div class="flex gap-2" style="flex-wrap:wrap;align-items:center;padding:4px 0">
+      <span style="width:150px">${inp(e.label, `finPlanRowSet('events','${e.id}','label',this.value)`, 'placeholder="Ex.: 13º 2ª parcela"')}</span>
+      <span style="width:130px"><input type="month" class="form-input" style="padding:4px 8px;font-size:.8rem" value="${_esc(e.month)}" onchange="finPlanRowSet('events','${e.id}','month',this.value)"></span>
+      <select class="form-select" style="width:110px;padding:4px 8px;font-size:.8rem" onchange="finPlanRowSet('events','${e.id}','type',this.value)">
+        <option value="income" ${e.type!=='expense'?'selected':''}>Entrada</option><option value="expense" ${e.type==='expense'?'selected':''}>Saída</option></select>
+      <span style="width:100px">${inp(e.amount||'', `finPlanRowSet('events','${e.id}','amount',this.value)`, 'inputmode="decimal"')}</span>
+      <button class="btn-icon" onclick="finPlanRowDel('events','${e.id}')">✕</button></div>`).join('');
+
+  const profHTML = `<div class="card mb-3">
+    <div class="font-semibold mb-2">⚙ Seu perfil financeiro</div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+      <div><div class="text-xs text-muted">Salário líquido mensal</div>${inp(+p.netSalary>0?p.netSalary:'', `finPlanField('netSalary',this.value,true)`, 'inputmode="decimal"')}</div>
+      <div><div class="text-xs text-muted">Meta de poupança mensal</div>${inp(+p.savingsTarget>0?p.savingsTarget:'', `finPlanField('savingsTarget',this.value,true)`, 'inputmode="decimal"')}</div>
+      <div><div class="text-xs text-muted">CDI ao ano (%)</div>${inp(p.cdi, `finPlanField('cdi',this.value,true)`, 'inputmode="decimal"')}</div>
+      <div><div class="text-xs text-muted">IR sobre o rendimento (%)</div>${inp(p.irPct, `finPlanField('irPct',this.value,true)`, 'inputmode="decimal"')}</div>
+      <div><div class="text-xs text-muted">Corte no cenário "cortes" (%)</div>${inp(p.cutPct, `finPlanField('cutPct',this.value,true)`, 'inputmode="decimal"')}</div>
+      <div><div class="text-xs text-muted">Renda extra na projeção</div>
+        <select class="form-select" style="padding:4px 8px;font-size:.8rem" onchange="finPlanField('extraMode',this.value,false)">
+          <option value="none" ${p.extraMode!=='avg'?'selected':''}>Não contar (conservador)</option>
+          <option value="avg" ${p.extraMode==='avg'?'selected':''}>Contar a média (${fmtBRL(pr.extraAvg)}/mês)</option></select></div>
+    </div>
+    <div class="text-xs text-muted mt-2">Se o salário estiver lançado como recorrência na categoria Salário, ele é ignorado quando você preenche o líquido aqui (não conta duas vezes). Renda extra = categoria "Freelance / Extra", média de 6 meses.</div>
+    <div class="flex items-center justify-between mt-3"><div class="text-sm font-semibold">Reservas e investimentos</div><button class="btn btn-ghost btn-sm" onclick="finPlanRowAdd('reserves')">+ Reserva</button></div>
+    ${resHTML || '<div class="text-sm text-muted">Nenhuma reserva cadastrada.</div>'}
+    <div class="flex items-center justify-between mt-3"><div class="text-sm font-semibold">Entradas e saídas avulsas (13º, férias, viagens…)</div><button class="btn btn-ghost btn-sm" onclick="finPlanRowAdd('events')">+ Evento</button></div>
+    ${evHTML || '<div class="text-sm text-muted">Nenhum evento.</div>'}
+  </div>`;
+
+  container.innerHTML = statsHTML + alertsHTML + projHTML + varHTML + cardsHTML + benHTML + profHTML;
+}
+
+const _origRenderFinancialV341 = renderFinancial;
+renderFinancial = function () {
+  if (finView === 'projection') {
+    const c = document.getElementById('fin-view') || document.getElementById('fin-view-sub');
+    if (c) renderFinProjection(c);
+    return;
+  }
+  return _origRenderFinancialV341.apply(this, arguments);
+};
+
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
 renderSubAreaPage = function (subId) {
