@@ -8297,7 +8297,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.54.0';
+const APP_VERSION = '3.54.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13769,7 +13769,8 @@ planWeek = function (offset) {
     const dur = need[t.id];
     const eff = _taskDurH(t);
     let rem = dur; const parts = [];
-    const focus = _focusMode();
+    // v3.54.1 (escolha da usuária): atrasada ou urgente vai para o primeiro horário livre, mesmo dividida; as outras ficam inteiras
+    const focus = _focusMode() && !(t.priority === 'urgent' || (t.due && t.due < today && !isWaiting));
     const place = (maxDay, kind) => {
       const listOf = day => kind === 'any' ? day.blocks.concat(day.wblocks).sort((x, y) => x.s - y.s) : (kind === 'w' ? day.wblocks : day.blocks);
       const okDay = day => !(maxDay && day.d > maxDay) && !(isWaiting && day.d !== t.due) && !(earliest && day.d < earliest);
@@ -14008,7 +14009,7 @@ renderPlanner = function () {
   const card = c.querySelector('.card');
   if (card && !card.querySelector('.reserve-cfg')) card.insertAdjacentHTML('beforeend', `<div class="reserve-cfg text-sm mt-2">
       <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${cfg.auto ? 'checked' : ''} onchange="setReserveCfg('autoReserve',this.checked)"> 📅 Reservar automaticamente na Agenda as tarefas com prazo e estimativa</label>
-      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${_focusMode() ? 'checked' : ''} onchange="setFocusMode(this.checked)"> 🎯 Atenção concentrada: cada tarefa num bloco só, sem picar (só divide se não couber inteira em nenhum horário até o prazo)</label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${_focusMode() ? 'checked' : ''} onchange="setFocusMode(this.checked)"> 🎯 Atenção concentrada: cada tarefa num bloco só, sem picar — exceto atrasadas e urgentes, que vão para o primeiro horário livre (mesmo divididas)</label>
       <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${(((STATE.settings || {}).planner || {}).useRhythm !== false) ? 'checked' : ''} onchange="setRhythm(this.checked)"> ⏱ Ajustar minhas estimativas pelo meu ritmo real${estimateCalibration().ready ? ` (hoje: ${estimateCalibration().factor.toLocaleString('pt-BR',{maximumFractionDigits:2})}×)` : ' (ainda sem histórico suficiente)'}</label>
       <label style="display:flex;gap:6px;align-items:center">🛡 Terminar <input type="number" min="0" max="7" value="${cfg.margin}" class="form-input" style="width:56px;padding:2px 6px" onchange="setReserveCfg('margin',Math.max(0,Math.min(7,Number(this.value)||0)))"> dia(s) antes do prazo (margem para imprevistos)</label>
     </div>`);
@@ -15857,7 +15858,7 @@ function _replanAutoReserves() {
 }
 function setFocusMode(on) { STATE.settings.planner = { ...(STATE.settings.planner || {}), focus: !!on }; _replanAutoReserves(); toast(on ? '🎯 Tarefas em blocos inteiros — reservas refeitas' : 'Tarefas podem ser divididas de novo'); renderPlanner(); }
 // uma vez: com a atenção concentrada ligada por padrão, refaz reservas já picadas que você não mexeu
-setTimeout(() => { try { if (STATE.settings && !STATE.settings._focusMigrated) { STATE.settings._focusMigrated = true; if (_focusMode()) _replanAutoReserves(); } } catch (e) {} }, 4000);
+setTimeout(() => { try { if (STATE.settings && STATE.settings._focusMigrated !== 2) { STATE.settings._focusMigrated = 2; if (_focusMode()) _replanAutoReserves(); } } catch (e) {} }, 4000);
 function setRhythm(on) { STATE.settings.planner = { ...(STATE.settings.planner || {}), useRhythm: !!on }; _replanAutoReserves(); renderPlanner(); }
 // Formulário da tarefa: "vai levar exatamente esse tempo"
 (function () {
