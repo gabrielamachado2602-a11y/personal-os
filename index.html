@@ -8307,7 +8307,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.52.0';
+const APP_VERSION = '3.52.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13883,14 +13883,21 @@ function autoReserve(silent) {
     if (_freeWaitingBlocks(silent)) changed = true;
     // 1c) chegou tarefa do trabalho sem espaço no expediente → libera os encaixes pessoais reservados lá
     {
-      const P0 = planWeek(0);
-      const needWork = P0.unplaced.some(u => u.work) || P0.days.some(d => d.items.some(i => i.task.work && i.late));
-      if (needWork) {
+      // v3.52.1: só libera se isso de fato ajudar o trabalho (antes liberava, recriava e liberava de novo a cada minuto)
+      const workIssue = P => P.unplaced.filter(u => u.work).length + P.days.reduce((n, d) => n + d.items.filter(i => i.task.work && i.late).length, 0);
+      const before = workIssue(planWeek(0));
+      if (before > 0) {
         const fills = (STATE.events || []).filter(e => e.autoReserved && e.workFill && new Date(e.start).getTime() > now);
         if (fills.length) {
           const ids = new Set(fills.map(e => e.id));
-          STATE.events = STATE.events.filter(e => !ids.has(e.id)); ids.forEach(id => delete map[id]); changed = true;
-          if (!silent) toast(`💼 Liberei ${fills.length} encaixe(s) pessoal(is) do expediente para as tarefas do trabalho`);
+          const saved = STATE.events;
+          STATE.events = STATE.events.filter(e => !ids.has(e.id));
+          if (workIssue(planWeek(0)) < before) {
+            ids.forEach(id => delete map[id]); changed = true;
+            STATE.settings._fillFreedAt = Date.now(); // não volta a encaixar pessoal no expediente por 24h (evita liberar/recriar sem parar)
+            const last = STATE.settings._fillToastAt || 0;
+            if (!silent && Date.now() - last > 6 * 3600 * 1000) { STATE.settings._fillToastAt = Date.now(); toast(`💼 Liberei ${fills.length} encaixe(s) pessoal(is) do expediente para as tarefas do trabalho`); }
+          } else STATE.events = saved; // liberar não resolveria: deixa como está, sem aviso
         }
       }
     }
@@ -13931,6 +13938,7 @@ function autoReserve(silent) {
       P.days.forEach(day => day.items.forEach(it => {
         const t = it.task;
         if (!t.due || t.reserveOff || it.late) return;
+        if (it.inWork && !t.work && (STATE.settings._fillFreedAt || 0) > now - 24 * 3600 * 1000) return;
         // v3.39.8: encaixe pessoal no expediente é reservado (o trabalho já foi encaixado antes; se faltar espaço depois, ele é liberado)
         if (!(Number(t.effort) > 0)) it.assumed = true;
         const hadPast = (STATE.events || []).some(e => e.taskId === t.id && e.autoReserved && new Date(e.end || e.start).getTime() <= now);
