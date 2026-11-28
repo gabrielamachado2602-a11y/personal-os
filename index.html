@@ -731,19 +731,9 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
       <span class="nav-caret" id="data-menu-caret" style="margin-left:auto;transition:transform .18s;font-size:.7rem;color:var(--text3)">▸</span>
     </button>
     <div class="data-submenu" id="data-submenu" style="display:none">
-      <button class="nav-item nav-subitem" onclick="openSyncModal()" title="Sincronizar entre celular e computador">
-        <span class="nav-icon">⇅</span> Sincronizar celular ↔ PC
-      </button>
       <button class="nav-item nav-subitem" onclick="openStorageModal()" title="Ver uso do armazenamento e liberar espaço">
         <span class="nav-icon">▭</span> Armazenamento
       </button>
-      <button class="nav-item nav-subitem" onclick="exportICS()">
-        <span class="nav-icon">↗</span> Exportar agenda (.ics)
-      </button>
-      <label class="nav-item nav-subitem" style="cursor:pointer" title="Importar eventos de arquivo .ics">
-        <span class="nav-icon">↙</span> Importar agenda (.ics)
-        <input type="file" accept=".ics" style="display:none" onchange="importICS(event)">
-      </label>
       <button class="nav-item nav-subitem" onclick="exportData()">
         <span class="nav-icon">↓</span> Exportar backup (.json)
       </button>
@@ -8307,7 +8297,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.53.0';
+const APP_VERSION = '3.53.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
