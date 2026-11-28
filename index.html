@@ -8307,7 +8307,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.52.1';
+const APP_VERSION = '3.53.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -15792,6 +15792,52 @@ document.addEventListener('change', ev => {
   const dim = document.getElementById('inbox-process-dim').value; if (dim) { item.dim = dim; item.sub = document.getElementById('inbox-process-sub').value || ''; }
   inboxOpenAs(id, type);
 });
+
+// ── v3.53.0 — Custo estimado do compromisso vira previsto no Financeiro ──
+// Um lançamento previsto ligado ao compromisso (t.eventId). Enquanto for previsto, acompanha o compromisso
+// (valor, data, nome, meta); some se o custo for zerado ou o compromisso apagado. Confirmado (realizado), fica.
+function finEventCostSync() {
+  const today = todayStr(); let n = 0;
+  const evIds = new Set((STATE.events || []).map(e => e.id));
+  (STATE.events || []).forEach(e => {
+    const cost = +e.estimatedCost || 0;
+    const tx = STATE.transactions.find(t => t.eventId === e.id);
+    const date = (e.start || '').slice(0, 10);
+    if (cost > 0) {
+      if (!tx) {
+        if (!date || date < today) return; // não cria previsto para compromisso que já passou
+        STATE.transactions.push({ id: uid(), type: 'expense', status: 'previsto', desc: e.title, amount: cost, date,
+          category: typeof guessCategory === 'function' ? (guessCategory(e.title) || 'outros') : 'outros',
+          method: '', account: '', recurrence: 'none', goalId: e.goalId || '', notes: 'Custo estimado do compromisso (Agenda).',
+          eventId: e.id, created: Date.now(), updatedAt: Date.now() });
+        n++;
+      } else if (tx.status === 'previsto') {
+        const upd = { desc: e.title, amount: cost, date: date || tx.date, goalId: e.goalId || '' };
+        if (Object.keys(upd).some(k => tx[k] !== upd[k])) { Object.assign(tx, upd, { updatedAt: Date.now() }); }
+      }
+    } else if (tx && tx.status === 'previsto') {
+      STATE.transactions = STATE.transactions.filter(t => t !== tx);
+    }
+  });
+  // compromisso apagado → previsto ligado sai
+  const before = STATE.transactions.length;
+  STATE.transactions = STATE.transactions.filter(t => !(t.eventId && t.status === 'previsto' && !evIds.has(t.eventId)));
+  return n;
+}
+const _origSaveLocalV353 = saveLocal;
+saveLocal = function () {
+  try { const n = finEventCostSync(); if (n) setTimeout(() => toast(`💸 ${n === 1 ? 'Custo do compromisso lançado' : n + ' custos de compromissos lançados'} como previsto no Financeiro`), 50); } catch (e) { console.warn('finEventCostSync', e); }
+  return _origSaveLocalV353.apply(this, arguments);
+};
+setTimeout(() => { try { if (finEventCostSync()) { save(); toast('💸 Custos de compromissos lançados como previstos no Financeiro'); } } catch (e) {} }, 3000); // compromissos já existentes
+// Meta: custo de compromisso que já virou lançamento não conta duas vezes
+const _origGoalFinancialsV353 = goalFinancials;
+goalFinancials = function (goalId) {
+  const f = _origGoalFinancialsV353.apply(this, arguments);
+  const dup = STATE.events.filter(e => e.goalId === goalId && STATE.transactions.some(t => t.eventId === e.id)).reduce((s,e) => s + (+e.estimatedCost || 0), 0);
+  if (dup) { f.eventsCost -= dup; f.totalProjected -= dup; }
+  return f;
+};
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
