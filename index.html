@@ -8307,7 +8307,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.51.0';
+const APP_VERSION = '3.52.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -15712,6 +15712,78 @@ gcQuickMore = function () {
   _origGcQuickMoreV351.apply(this, arguments);
   if (on) _evAllDaySet(true);
 };
+
+// ── v3.52.0 — Inbox: um toque abre o formulário completo (sem passar pelo formulário da Inbox) ──
+function inboxOpenAs(id, type) {
+  const item = (STATE.inbox || []).find(i => i.id === id); if (!item) return;
+  ['modal-inbox-process'].forEach(m => { const el = document.getElementById(m); if (el && !el.classList.contains('hidden')) closeModal(m); });
+  item.type = type; item.status = 'processed';
+  const p = (typeof parseCapture === 'function' ? parseCapture(item.text) : null) || {};
+  const tidy = t => String(t || '').replace(/(^|\s)(às|as|dia)(?=\s|$)(?!\s*\d)/gi, ' ').replace(/\s{2,}/g, ' ').replace(/\s+(no|na|em|de|para|até)$/i, '').trim();
+  if (p.title) p.title = tidy(p.title);
+  if (p.desc) p.desc = tidy(p.desc);
+  if ((type === 'expense' || type === 'income') && !p.amount) {
+    const m = String(item.text).match(/(\d+(?:\.\d{3})*,\d{1,2}|\d+(?:\.\d{1,2})?)(?!.*\d)/);
+    if (m) { const raw = m[1]; p.amount = parseFloat(raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw); p.desc = tidy(String(item.text).replace(m[0], '')); }
+  }
+  if ((type === 'expense' || type === 'income') && !p.category && typeof guessCategory === 'function') p.category = guessCategory(item.text);
+  const r = inboxConvert(item);
+  setTimeout(() => {
+    if (type === 'task') {
+      const t = p.title && p.kind === 'task' ? p.title : null;
+      if (t) document.getElementById('task-title').value = t;
+      const due = item.due || p.due || (p.kind === 'event' ? p.date : '');
+      if (due) document.getElementById('task-due').value = due;
+    }
+    if (type === 'event') {
+      const date = item.due || p.date || todayStr();
+      if (p.title && (p.kind === 'event')) document.getElementById('event-title').value = p.title;
+      if (p.time) {
+        setEventDateTime('start', date, p.time);
+        const [h, m] = p.time.split(':').map(Number); const em = Math.min(23 * 60 + 55, h * 60 + m + 60);
+        setEventDateTime('end', date, `${String(Math.floor(em / 60)).padStart(2,'0')}:${String(em % 60).padStart(2,'0')}`);
+        _evAllDaySet(false);
+      } else {
+        setEventDateTime('start', date, '09:00'); setEventDateTime('end', date, '10:00');
+        if (p.date || item.due) _evAllDaySet(true); // sabe o dia mas não a hora
+      }
+      if (p.location) document.getElementById('event-location').value = p.location;
+    }
+    if (type === 'expense' || type === 'income') {
+      if (p.amount) document.getElementById('txn-amount').value = p.amount;
+      if (p.desc) document.getElementById('txn-desc').value = p.desc;
+      if (p.category && document.getElementById('txn-category')) { try { document.getElementById('txn-category').value = p.category; } catch (e) {} }
+      if (p.date) document.getElementById('txn-date').value = item.due || p.date;
+    }
+  }, 30);
+  save(); renderInbox();
+  return r;
+}
+// Botões diretos em cada item da Inbox
+const _origRenderInboxV352 = renderInbox;
+renderInbox = function () {
+  _origRenderInboxV352.apply(this, arguments);
+  (STATE.inbox || []).forEach(i => {
+    const row = document.getElementById('inbox-' + i.id); if (!row) return;
+    const meta = row.querySelector('.item-content'); if (!meta) return;
+    const b = (t, l) => `<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:.72rem" onclick="inboxOpenAs('${i.id}','${t}')">${l}</button>`;
+    meta.insertAdjacentHTML('beforeend', `<div class="flex gap-1 mt-1" style="flex-wrap:wrap">
+      ${b('task','☐ Tarefa')}${b('event','📅 Compromisso')}${b('expense','− Despesa')}${b('income','+ Receita')}${b('goal','◎ Meta')}
+      <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:.72rem" title="Nota, ideia, contato, conteúdo, compra…" onclick="openInboxProcess('${i.id}')">⋯ Outros</button></div>`);
+  });
+};
+// No formulário da Inbox: escolher Tarefa/Compromisso/Despesa/Receita/Meta já abre o formulário completo
+document.addEventListener('change', ev => {
+  if (!ev.target || ev.target.id !== 'inbox-process-type') return;
+  const type = ev.target.value;
+  if (!['task', 'event', 'expense', 'income', 'goal'].includes(type)) return;
+  const id = document.getElementById('inbox-process-id').value;
+  const item = (STATE.inbox || []).find(i => i.id === id); if (!item) return;
+  const txt = (document.getElementById('inbox-process-text').value || '').trim(); if (txt) item.text = txt;
+  const due = document.getElementById('inbox-process-due').value; if (due) item.due = due;
+  const dim = document.getElementById('inbox-process-dim').value; if (dim) { item.dim = dim; item.sub = document.getElementById('inbox-process-sub').value || ''; }
+  inboxOpenAs(id, type);
+});
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
