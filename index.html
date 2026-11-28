@@ -715,7 +715,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
     <span class="nav-icon">⚡</span> Planejar semana
   </button>
   <button class="nav-item" onclick="navigate('workday')" id="nav-workday">
-    <span class="nav-icon">💼</span> Meu expediente
+    <span class="nav-icon">☀</span> Meu dia
   </button>
   <button class="nav-item" onclick="navigate('insights')" id="nav-insights">
     <span class="nav-icon">✦</span> Inteligência
@@ -3557,7 +3557,7 @@ function navigate(page, subId) {
     projects: 'Projetos', tasks: 'Tarefas', agenda: 'Agenda',
     habits: 'Hábitos', energy: 'Energia & Capacidade',
     financial: 'Financial OS', social: 'Redes Sociais', tempo: 'Dimensão de Tempo', settings: 'Configurações',
-    performance: 'Caderneta de Performance', pipeline: 'Pipeline de Candidaturas', books: 'Estante de Leitura', planner: 'Planejar semana', workday: 'Meu expediente', insights: 'Inteligência'
+    performance: 'Caderneta de Performance', pipeline: 'Pipeline de Candidaturas', books: 'Estante de Leitura', planner: 'Planejar semana', workday: 'Meu dia', insights: 'Inteligência'
   };
   if (!page.startsWith('dim_') && page !== 'subarea') {
     document.getElementById('topbar-title').textContent = titles[page] || page;
@@ -8297,7 +8297,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.54.3';
+const APP_VERSION = '3.55.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -15923,6 +15923,136 @@ editTask = function (id) {
 };
 const _origOpenTaskModalV3542 = openTaskModal;
 openTaskModal = function (editId) { const r = _origOpenTaskModalV3542.apply(this, arguments); if (!editId) { const i = document.getElementById('task-res-info'); if (i) i.innerHTML = ''; } return r; };
+
+// ── v3.55.0 — "Meu dia": junta Meu expediente + Planejar semana ──
+// Topo: faixa da semana (clicar abre o dia). Meio: linha do tempo do dia (expediente quando houver; nos outros dias,
+// a mesma linha do tempo com compromissos, tarefas reservadas, hábitos e sugestões). Embaixo: as listas do Planejador.
+let _mdRendering = false;
+function _mdWeekStrip(d) {
+  const today = todayStr(), dt = new Date(d + 'T12:00:00');
+  const mon = _dateAdd(d, -((dt.getDay() + 6) % 7));
+  const cells = [];
+  for (let i = 0; i < 7; i++) {
+    const x = _dateAdd(mon, i), xd = new Date(x + 'T12:00:00');
+    const evs = getEventsForDate(x).filter(e => !e._recurHidden);
+    const timed = evs.filter(e => !gcIsMultiDay(e) && !isWorkBlock(e));
+    const allday = evs.filter(e => gcIsMultiDay(e)).length;
+    const busy = timed.reduce((s, e) => { const m = _evMin(e, x); return s + (m ? m.e - m.s : 0); }, 0);
+    const hasW = !!workDay(x);
+    cells.push(`<button class="md-day${x === d ? ' on' : ''}${x === today ? ' today' : ''}${x < today ? ' past' : ''}" onclick="_wdDate='${x}';renderWorkday()">
+      <span class="md-dow">${_WD[xd.getDay()]}</span><span class="md-num">${xd.getDate()}</span>
+      <span class="md-sub">${hasW ? '💼 ' : ''}${timed.length ? _fmtDur(busy) : (allday ? 'dia todo' : 'livre')}</span></button>`);
+  }
+  return `<div class="md-week">
+    <button class="btn btn-ghost btn-sm" onclick="_wdDate='${_dateAdd(mon, -7)}';renderWorkday()" title="Semana anterior">‹</button>
+    ${cells.join('')}
+    <button class="btn btn-ghost btn-sm" onclick="_wdDate='${_dateAdd(mon, 7)}';renderWorkday()" title="Próxima semana">›</button></div>`;
+}
+// Linha do tempo para dia sem expediente (mesmo visual do expediente)
+function _mdPersonalDayHTML(d) {
+  const today = todayStr(), nowMin = d === today ? _nowMin() : null;
+  const evs = getEventsForDate(d);
+  const allday = evs.filter(e => gcIsMultiDay(e));
+  const rows = [];
+  evs.filter(e => !gcIsMultiDay(e)).forEach(e => {
+    const m = _evMin(e, d); if (!m) return;
+    const t = e.taskId && (STATE.tasks || []).find(x => x.id === e.taskId);
+    if (t) {
+      const open = _taskOpen(t), run = _activeTimer() && _activeTimer().taskId === t.id;
+      const overdueT = open && t.due && t.due < today;
+      rows.push({ s: m.s, k: 'task', html: `<span class="wd-t">${_minToHM(m.s)}</span><span style="flex:1;cursor:pointer;${open ? '' : 'text-decoration:line-through;color:var(--text3)'}" onclick="editTask('${t.id}')">${_esc(t.title)} <span class="text-xs text-muted">· ${e.autoReserved ? '📅 reservado' : '⚡ foco'} · até ${_minToHM(m.e)}${t.due ? ' · prazo ' + formatDate(t.due) : ''}</span>${overdueT ? ' <span class="text-xs" style="color:var(--danger)">atrasada</span>' : ''}</span>
+        ${open ? `<button class="btn-icon timer-btn${run ? ' on' : ''}" onclick="timerToggle('${t.id}');renderWorkday()" title="Cronometrar">${run ? '■' : '▶'}</button>
+        <button class="btn-icon" title="Editar" onclick="editTask('${t.id}')">✎</button>
+        <button class="btn-icon" title="Concluir" onclick="toggleTask('${t.id}');renderWorkday()">✓</button>` : `<button class="btn-icon" title="Reabrir" onclick="toggleTask('${t.id}');renderWorkday()">↺</button>`}
+        <button class="btn-icon" title="Tirar da agenda" onclick="planUnreserve('${e.id}')">✕</button>` });
+      return;
+    }
+    rows.push({ s: m.s, k: e.work ? 'meet' : 'pers', html: `<span class="wd-t">${_minToHM(m.s)}</span><span style="flex:1;cursor:pointer" onclick="editEvent('${e.id}','${d}')">${_esc(e.title)} <span class="text-xs text-muted">· ${e.work ? '💼 reunião' : 'compromisso'} · até ${_minToHM(m.e)}${e.location ? ' · ' + _esc(e.location) : ''}</span></span>` });
+  });
+  gcHabitVirtual(d).forEach(h => {
+    const m = _evMin(h, d); if (!m) return;
+    const hd = _habitDoneOn(h._habit, d);
+    rows.push({ s: m.s, k: 'pers', html: `<span class="wd-t">${_minToHM(m.s)}</span><span style="flex:1;cursor:pointer;${hd ? 'text-decoration:line-through;color:var(--text3)' : ''}" onclick="editHabit('${h._habit}')">🔁 ${_esc(h.title)} <span class="text-xs text-muted">· hábito · até ${_minToHM(m.e)}</span></span>
+      <button class="btn-icon" title="${hd ? 'Desmarcar' : 'Feito'}" onclick="gcHabitToggle('${h._habit}','${d}');renderWorkday()">${hd ? '↺' : '✓'}</button>` });
+  });
+  const plan = _planForDate(d);
+  (plan ? plan.items : []).forEach(i => {
+    const run = _activeTimer() && _activeTimer().taskId === i.task.id;
+    rows.push({ s: i.s, k: 'fill', html: `<span class="wd-t">${_minToHM(i.s)}</span><span style="flex:1;cursor:pointer" onclick="editTask('${i.task.id}')">${_esc(i.task.title)} <span class="text-xs text-muted">· sugestão · até ${_minToHM(i.e)}${i.part ? ' · parte ' + i.part : ''}</span></span>
+      <button class="btn-icon timer-btn${run ? ' on' : ''}" onclick="timerToggle('${i.task.id}');renderWorkday()" title="Cronometrar">${run ? '■' : '▶'}</button>
+      <button class="btn-icon" title="Editar" onclick="editTask('${i.task.id}')">✎</button>
+      <button class="btn-icon" title="Pôr na agenda" onclick="_planEvent('${i.task.id}','${d}',${i.s},${i.e});save();renderWorkday()">📅</button>
+      <button class="btn-icon" title="Concluir" onclick="toggleTask('${i.task.id}');renderWorkday()">✓</button>` });
+  });
+  rows.sort((a, b) => a.s - b.s);
+  let nowPut = nowMin == null;
+  const tl = rows.map(r => { let pre = ''; if (!nowPut && r.s > nowMin) { nowPut = true; pre = `<div class="wd-now">agora · ${_minToHM(nowMin)}</div>`; } return pre + `<div class="wd-row wd-${r.k}">${r.html}</div>`; }).join('')
+    + (!nowPut ? `<div class="wd-now">agora · ${_minToHM(nowMin)}</div>` : '');
+  const free = plan ? _fmtDur(plan.freeMin || 0) : null;
+  return `<div class="card mb-3">
+    <div class="flex items-center justify-between mb-2" style="flex-wrap:wrap;gap:6px"><div class="font-semibold">Linha do tempo</div>
+      <div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="quickAddEventDay('${d}')">+ Compromisso</button><button class="btn btn-ghost btn-sm" onclick="openTaskModal()">+ Tarefa</button></div></div>
+    ${allday.length ? `<div class="text-sm mb-2">${allday.map(e => `<span class="chip" style="cursor:pointer;margin:2px" onclick="editEvent('${e.id}','${d}')">📌 ${_esc(e.title)} · dia todo</span>`).join('')}</div>` : ''}
+    ${tl}${rows.length ? '' : '<div class="text-sm text-muted">Nada marcado neste dia.</div>'}
+    ${free ? `<div class="text-xs text-muted mt-2">${free} livres para tarefas neste dia (dentro do horário do Planejador).${[1,2,3,4,5].includes(new Date(d + 'T12:00:00').getDay()) ? ' Sem expediente marcado neste dia — se for dia de trabalho, marque o compromisso do trabalho como "Este é o meu bloco de expediente".' : ''}</div>` : ''}
+  </div>`;
+}
+// Listas do Planejador (sem a grade da semana)
+function _mdPlannerListsHTML() {
+  const pg = document.getElementById('page-planner'); if (!pg) return '';
+  try { renderPlanner(); } catch (e) { return ''; }
+  const keep = [...pg.children].filter(c => !c.classList.contains('section-header') && !c.classList.contains('tabs') && !c.classList.contains('plan-week'));
+  return keep.map(c => c.outerHTML).join('');
+}
+const _origRenderWorkdayV355 = renderWorkday;
+renderWorkday = function () {
+  if (_mdRendering) return;
+  _mdRendering = true;
+  try {
+    _origRenderWorkdayV355.apply(this, arguments);
+    const c = document.getElementById('page-workday'); if (!c) return;
+    const d = _wdDate || todayStr();
+    const title = c.querySelector('.section-title'); if (title) title.textContent = 'Meu dia';
+    const head = c.querySelector('.section-header');
+    if (head) head.insertAdjacentHTML('afterend', _mdWeekStrip(d));
+    if (!workDay(d)) { // troca o aviso "Sem expediente" pela linha do tempo do dia
+      [...c.children].forEach(ch => { if (ch.classList.contains('card') && /Sem expediente neste dia/.test(ch.textContent)) ch.outerHTML = _mdPersonalDayHTML(d); });
+    } else {
+      const s = c.querySelector('.section-title'); if (s) s.insertAdjacentHTML('afterend', '<span class="text-xs text-muted" style="margin-left:6px">💼 dia de expediente</span>');
+    }
+    const lists = _mdPlannerListsHTML();
+    if (lists) { const t0 = todayStr(), w0 = _dateAdd(t0, -((new Date(t0 + 'T12:00:00').getDay() + 6) % 7));
+      c.insertAdjacentHTML('beforeend', `<div class="section-header mt-4" style="margin-top:24px"><div class="section-title" style="font-size:1.1rem">Planejamento das tarefas <span class="text-xs text-muted" style="font-family:inherit">· semana atual (${formatDate(w0)} a ${formatDate(_dateAdd(w0, 6))})</span></div></div>${lists}`); }
+  } finally { _mdRendering = false; }
+};
+// Ações do Planejador redesenham o Meu dia quando ele está aberto
+const _origRenderPlannerV355 = renderPlanner;
+renderPlanner = function () {
+  const r = _origRenderPlannerV355.apply(this, arguments);
+  if (!_mdRendering && typeof currentPage !== 'undefined' && currentPage === 'workday') renderWorkday();
+  return r;
+};
+// "Planejar semana" agora abre o Meu dia
+const _origNavigateV355 = navigate;
+navigate = function (page) {
+  if (page === 'planner') { const a = Array.from(arguments); a[0] = 'workday'; return _origNavigateV355.apply(this, a); }
+  return _origNavigateV355.apply(this, arguments);
+};
+(function () {
+  const np = document.getElementById('nav-planner'); if (np) np.style.display = 'none';
+  const nw = document.getElementById('nav-workday');
+  if (nw) { const ic = nw.querySelector('.nav-icon'); nw.innerHTML = `${ic ? ic.outerHTML.replace(/>[^<]*</, '>☀<') : ''} Meu dia`; }
+  const st = document.createElement('style');
+  st.textContent = `.md-week{display:flex;gap:6px;align-items:stretch;margin:0 0 14px;overflow-x:auto;padding-bottom:2px}
+.md-day{flex:1;min-width:64px;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 4px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;color:var(--text)}
+.md-day.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.md-day.today .md-num{color:var(--accent);font-weight:700}
+.md-day.past{opacity:.6}
+.md-dow{font-size:.68rem;color:var(--text3);text-transform:uppercase}
+.md-num{font-size:1.05rem}
+.md-sub{font-size:.66rem;color:var(--text2);white-space:nowrap}`;
+  document.head.appendChild(st);
+})();
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
