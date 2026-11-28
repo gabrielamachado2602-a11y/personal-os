@@ -1140,6 +1140,8 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
           <option value="pending">Não classificado</option>
           <option value="task">Tarefa</option>
           <option value="event">Compromisso</option>
+          <option value="expense">Despesa</option>
+          <option value="income">Receita</option>
           <option value="goal">Meta</option>
           <option value="purchase">Compra</option>
           <option value="idea">Ideia</option>
@@ -1880,6 +1882,8 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
           <option value="pending">Sem classificação</option>
           <option value="task">Tarefa</option>
           <option value="event">Compromisso</option>
+          <option value="expense">Despesa</option>
+          <option value="income">Receita</option>
           <option value="goal">Meta</option>
           <option value="purchase">Compra</option>
           <option value="idea">Ideia</option>
@@ -4126,8 +4130,8 @@ function renderInbox() {
     return;
   }
 
-  const typeLabels = { pending:'Pendente', task:'Tarefa', event:'Compromisso', goal:'Meta', purchase:'Compra', idea:'Ideia', note:'Nota', contact:'Contato', content:'Conteúdo' };
-  const typeBadgeClass = { pending:'badge-gray', task:'badge-blue', event:'badge-violet', goal:'badge-amber', purchase:'badge-green', idea:'badge-blue', note:'badge-gray', contact:'badge-violet', content:'badge-amber' };
+  const typeLabels = { pending:'Pendente', task:'Tarefa', event:'Compromisso', expense:'Despesa', income:'Receita', goal:'Meta', purchase:'Compra', idea:'Ideia', note:'Nota', contact:'Contato', content:'Conteúdo' };
+  const typeBadgeClass = { pending:'badge-gray', task:'badge-blue', event:'badge-violet', expense:'badge-red', income:'badge-green', goal:'badge-amber', purchase:'badge-green', idea:'badge-blue', note:'badge-gray', contact:'badge-violet', content:'badge-amber' };
 
   list.innerHTML = items.map(i => `
     <div class="item-row" id="inbox-${i.id}">
@@ -8301,7 +8305,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.49.0';
+const APP_VERSION = '3.50.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -11417,7 +11421,7 @@ function inboxModels() {
   _nbCache = { sig, dim: _nbTrain(dimDocs), type: _nbTrain(typeDocs), counts };
   return _nbCache;
 }
-const _TYPE_LABEL = { task: 'Tarefa', event: 'Compromisso', goal: 'Meta', purchase: 'Compra', idea: 'Ideia', note: 'Nota', contact: 'Contato', content: 'Conteúdo' };
+const _TYPE_LABEL = { task: 'Tarefa', event: 'Compromisso', expense: 'Despesa', income: 'Receita', goal: 'Meta', purchase: 'Compra', idea: 'Ideia', note: 'Nota', contact: 'Contato', content: 'Conteúdo' };
 function suggestInbox(text) {
   const M = inboxModels(), tk = _nbTok(text);
   const d = M.dim && _nbPredict(M.dim, tk), t = M.type && _nbPredict(M.type, tk);
@@ -15552,6 +15556,86 @@ const _origOpenFinGoalModalV349 = openFinGoalModal;
 openFinGoalModal = function () {
   _origOpenFinGoalModalV349.apply(this, arguments);
   const el = document.getElementById('fgoal-rate'); if (el) { el.disabled = false; el.title = ''; }
+};
+
+// ── v3.50.0 — Inbox e captura rápida abrem o formulário completo (tarefa, compromisso, despesa, receita) + meta na criação rápida da Agenda ──
+function _inboxParseMoney(text) {
+  const m = String(text || '').match(/(?:R\$\s*)(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s*(?:reais|conto|pila)\b/i);
+  if (!m) return { amount: null, rest: text };
+  const raw = m[1] || m[2];
+  const v = parseFloat(raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw);
+  return { amount: isFinite(v) ? v : null, rest: String(text).replace(m[0], '').replace(/\s{2,}/g, ' ').replace(/\s+([,.;:-])\s*$/, '').trim() };
+}
+// abrir estes formulários por outro caminho cancela a conversão pendente da Inbox
+['openTaskModal', 'editTask', 'openTransactionModal', 'editTransaction'].forEach(fn => {
+  const orig = window[fn]; if (typeof orig !== 'function') return;
+  window[fn] = function () { _inboxPendingConv = null; return orig.apply(this, arguments); };
+});
+_wrapConvSave('saveTask', 'task', 'tasks');
+_wrapConvSave('saveTransaction', 'txn', 'transactions');
+const _origInboxConvertV350 = inboxConvert;
+inboxConvert = function (item, opts) {
+  opts = opts || {};
+  const text = (item.text || '').trim();
+  if (item.type === 'task' && !opts.quiet) {
+    const dup = opts.checkDup ? _similarTask(text) : null;
+    if (!dup) {
+      openTaskModal(null, item.dim || undefined, item.sub || undefined);
+      document.getElementById('task-title').value = text;
+      if (item.due) document.getElementById('task-due').value = item.due;
+      _inboxPendingConv = { id: item.id, kind: 'task', n: (STATE.tasks || []).length };
+      toast('Complete a tarefa e salve — o item sai da Inbox');
+      return 'form';
+    }
+  }
+  if (item.type === 'expense' || item.type === 'income') {
+    if (opts.quiet) return 'stay';
+    const mo = _inboxParseMoney(text);
+    openTransactionModal(item.type);
+    document.getElementById('txn-desc').value = mo.rest || text;
+    if (mo.amount) document.getElementById('txn-amount').value = mo.amount;
+    document.getElementById('txn-date').value = item.due || todayStr();
+    _inboxPendingConv = { id: item.id, kind: 'txn', n: (STATE.transactions || []).length };
+    toast('Confira o valor e salve — o item sai da Inbox');
+    return 'form';
+  }
+  return _origInboxConvertV350.apply(this, arguments);
+};
+// Captura rápida (+ Novo): com tipo escolhido, já abre o formulário completo
+const _origSaveQuickAddV350 = saveQuickAdd;
+saveQuickAdd = function () {
+  const type = document.getElementById('qa-type').value;
+  if (!['task', 'event', 'expense', 'income', 'goal'].includes(type)) return _origSaveQuickAddV350.apply(this, arguments);
+  const n = (STATE.inbox || []).length;
+  _origSaveQuickAddV350.apply(this, arguments);
+  if ((STATE.inbox || []).length > n) setTimeout(() => inboxConvert(STATE.inbox[0]), 50);
+};
+// Criação rápida da Agenda: escolher a meta já no popover
+const _origGcOpenQuickCreateV350 = gcOpenQuickCreate;
+gcOpenQuickCreate = function () {
+  _origGcOpenQuickCreateV350.apply(this, arguments);
+  const dimSel = document.getElementById('gc-qc-dim'); const row = dimSel && dimSel.closest('.gc-pop-row'); if (!row) return;
+  row.insertAdjacentHTML('afterend', `<div class="gc-pop-row"><span class="gc-ic">🎯</span><div style="flex:1"><select id="gc-qc-goal" class="form-select" style="padding:4px 8px;font-size:.8rem"></select></div></div>`);
+  populateGoalRefSelect('gc-qc-goal');
+  const first = document.querySelector('#gc-qc-goal option'); if (first) first.textContent = 'Sem meta';
+};
+const _origGcQuickSaveV350 = gcQuickSave;
+gcQuickSave = function () {
+  const g = (document.getElementById('gc-qc-goal') || {}).value || '';
+  const nT = STATE.tasks.length, nE = STATE.events.length;
+  _origGcQuickSaveV350.apply(this, arguments);
+  if (g && (STATE.tasks.length > nT || STATE.events.length > nE)) {
+    if (STATE.tasks.length > nT) STATE.tasks[STATE.tasks.length - 1].goalId = g;
+    if (STATE.events.length > nE) STATE.events[STATE.events.length - 1].goalId = g;
+    save();
+  }
+};
+const _origGcQuickMoreV350 = gcQuickMore;
+gcQuickMore = function () {
+  const g = (document.getElementById('gc-qc-goal') || {}).value || '';
+  const kind = _gcQC && _gcQC.kind;
+  _origGcQuickMoreV350.apply(this, arguments);
+  if (g) populateGoalRefSelect(kind === 'task' ? 'task-goal' : 'event-goal', g);
 };
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
