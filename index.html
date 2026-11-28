@@ -8297,7 +8297,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.54.1';
+const APP_VERSION = '3.54.2';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -15879,6 +15879,35 @@ saveTask = function () {
   if (t && !!t.exactEffort !== exact) { t.exactEffort = exact; t.updatedAt = Date.now(); save(); try { autoReserve(true); } catch (e) {} }
   return r;
 };
+
+
+// ── v3.54.2 — Na tarefa: de onde vem o tempo reservado (transparência) ──
+function _taskResInfoHTML(t) {
+  const now = Date.now();
+  const evs = (STATE.events || []).filter(e => e.taskId === t.id && e.start && e.start.length > 10 && new Date(e.end || e.start).getTime() > now).sort((a, b) => a.start.localeCompare(b.start));
+  const est = _taskEffortH(t), spent = taskSpentMin(t, true), cal = estimateCalibration();
+  const useRhythm = !t.exactEffort && (((STATE.settings || {}).planner || {}).useRhythm !== false) && cal.ready;
+  const totalMin = est ? Math.round(est * (useRhythm ? cal.factor : 1) * 60) : 30;
+  const resMin = Math.round(evs.reduce((s, e) => s + Math.max(0, (new Date(e.end) - Math.max(now, new Date(e.start).getTime())) / 60000), 0));
+  const hm = m => `${Math.floor(m / 60)}h${String(Math.round(m % 60)).padStart(2, '0')}`;
+  const lines = [
+    `Tempo da tarefa: <strong>${hm(totalMin)}</strong>${est ? (useRhythm ? ` (sua estimativa ${hm(est * 60)} × ritmo ${cal.factor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })})` : ' (sua estimativa, sem ajuste)') : ' (sem estimativa: 30 min)'}`,
+    spent > 0 ? `Já cronometrado: <strong>${hm(spent)}</strong> → falta ${hm(Math.max(0, totalMin - spent))}` : '',
+    `Reservado daqui pra frente: <strong>${hm(resMin)}</strong>${evs.length ? ' — ' + evs.map(e => `${formatDate(e.start.slice(0, 10))} ${e.start.slice(11, 16)}–${(e.end || '').slice(11, 16)}${e.autoReserved ? '' : ' (posto por você)'}`).join(' · ') : ''}`
+  ].filter(Boolean);
+  return lines.join('<br>');
+}
+const _origEditTaskV3542 = editTask;
+editTask = function (id) {
+  const r = _origEditTaskV3542.apply(this, arguments);
+  const t = (STATE.tasks || []).find(x => x.id === id); const box = document.getElementById('task-exact');
+  let info = document.getElementById('task-res-info');
+  if (!info && box) { box.closest('label').insertAdjacentHTML('afterend', '<div id="task-res-info" class="text-xs" style="margin-top:6px;line-height:1.6;color:var(--text2)"></div>'); info = document.getElementById('task-res-info'); }
+  if (info) info.innerHTML = t ? _taskResInfoHTML(t) : '';
+  return r;
+};
+const _origOpenTaskModalV3542 = openTaskModal;
+openTaskModal = function (editId) { const r = _origOpenTaskModalV3542.apply(this, arguments); if (!editId) { const i = document.getElementById('task-res-info'); if (i) i.innerHTML = ''; } return r; };
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
 const _origRenderSubAreaV340 = renderSubAreaPage;
