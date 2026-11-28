@@ -8297,7 +8297,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.55.0';
+const APP_VERSION = '3.55.1';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -15825,25 +15825,34 @@ function finEventCostSync() {
     const cost = +e.estimatedCost || 0;
     const tx = STATE.transactions.find(t => t.eventId === e.id);
     const date = (e.start || '').slice(0, 10);
+    if (tx && !e.costTxId) { e.costTxId = tx.id; }
+    // v3.55.1: você apagou o lançamento ligado → não recria (o custo fica por sua conta)
+    if (!tx && e.costTxId) { if (!e.costManual) { e.costManual = true; e.updatedAt = Date.now(); } return; }
+    if (e.costManual) return;
     if (cost > 0) {
       if (!tx) {
         if (!date || date < today) return; // não cria previsto para compromisso que já passou
-        STATE.transactions.push({ id: uid(), type: 'expense', status: 'previsto', desc: e.title, amount: cost, date,
+        const id = uid();
+        STATE.transactions.push({ id, type: 'expense', status: 'previsto', desc: e.title, amount: cost, date,
           category: typeof guessCategory === 'function' ? (guessCategory(e.title) || 'outros') : 'outros',
           method: '', account: '', recurrence: 'none', goalId: e.goalId || '', notes: 'Custo estimado do compromisso (Agenda).',
-          eventId: e.id, created: Date.now(), updatedAt: Date.now() });
+          eventId: e.id, _evSync: { desc: e.title, amount: cost, date }, created: Date.now(), updatedAt: Date.now() });
+        e.costTxId = id;
         n++;
-      } else if (tx.status === 'previsto') {
+      } else if (tx.status === 'previsto' && !tx.eventManual) {
+        // v3.55.1: se você editou o lançamento (valor, data ou nome), ele para de acompanhar o compromisso
+        const last = tx._evSync;
+        if (last && (tx.amount !== last.amount || tx.date !== last.date || tx.desc !== last.desc)) { tx.eventManual = true; tx.updatedAt = Date.now(); return; }
         const upd = { desc: e.title, amount: cost, date: date || tx.date, goalId: e.goalId || '' };
-        if (Object.keys(upd).some(k => tx[k] !== upd[k])) { Object.assign(tx, upd, { updatedAt: Date.now() }); }
+        if (Object.keys(upd).some(k => tx[k] !== upd[k]) || !last) { Object.assign(tx, upd, { _evSync: { desc: upd.desc, amount: upd.amount, date: upd.date }, updatedAt: Date.now() }); }
       }
-    } else if (tx && tx.status === 'previsto') {
+    } else if (tx && tx.status === 'previsto' && !tx.eventManual) {
       STATE.transactions = STATE.transactions.filter(t => t !== tx);
+      delete e.costTxId;
     }
   });
-  // compromisso apagado → previsto ligado sai
-  const before = STATE.transactions.length;
-  STATE.transactions = STATE.transactions.filter(t => !(t.eventId && t.status === 'previsto' && !evIds.has(t.eventId)));
+  // compromisso apagado → previsto ligado sai (só se você não editou)
+  STATE.transactions = STATE.transactions.filter(t => !(t.eventId && t.status === 'previsto' && !t.eventManual && !evIds.has(t.eventId)));
   return n;
 }
 const _origSaveLocalV353 = saveLocal;
@@ -15856,7 +15865,7 @@ setTimeout(() => { try { if (finEventCostSync()) { save(); toast('💸 Custos de
 const _origGoalFinancialsV353 = goalFinancials;
 goalFinancials = function (goalId) {
   const f = _origGoalFinancialsV353.apply(this, arguments);
-  const dup = STATE.events.filter(e => e.goalId === goalId && STATE.transactions.some(t => t.eventId === e.id)).reduce((s,e) => s + (+e.estimatedCost || 0), 0);
+  const dup = STATE.events.filter(e => e.goalId === goalId && (e.costManual || STATE.transactions.some(t => t.eventId === e.id))).reduce((s,e) => s + (+e.estimatedCost || 0), 0);
   if (dup) { f.eventsCost -= dup; f.totalProjected -= dup; }
   return f;
 };
