@@ -1270,6 +1270,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
       <button type="button" class="chip" style="cursor:pointer" onclick="setEventQuick(1,9)">Amanhã 9h</button>
       <button type="button" class="chip" style="cursor:pointer" onclick="setEventQuick(7,9)">+1 semana</button>
     </div>
+    <label style="display:flex;gap:6px;align-items:center;cursor:pointer;margin-bottom:8px;font-size:.85rem"><input type="checkbox" id="event-allday" onchange="_evAllDaySync()"> Dia inteiro <span class="text-xs text-muted">(sei o dia, mas não o horário)</span></label>
     <div class="form-group">
       <label class="form-label">Início</label>
       <div class="flex gap-2" style="flex-wrap:wrap;align-items:center">
@@ -3774,7 +3775,7 @@ function opsIntelligence() {
 
   // ---- PRÓXIMO COMPROMISSO + hora de sair ----
   const nowMin = now.getHours()*60+now.getMinutes();
-  const futureToday = todayEvents.filter(e=>{ const hm=(e.start.slice(11)||'00:00'); return (parseInt(hm.slice(0,2))*60+parseInt(hm.slice(3,5))) >= nowMin; }).sort((a,b)=>a.start.localeCompare(b.start));
+  const futureToday = todayEvents.filter(e=>!e.allDay && (e.start||'').length>10).filter(e=>{ const hm=(e.start.slice(11)||'00:00'); return (parseInt(hm.slice(0,2))*60+parseInt(hm.slice(3,5))) >= nowMin; }).sort((a,b)=>a.start.localeCompare(b.start));
   if (futureToday.length) {
     const e = futureToday[0];
     add('info','📍',`Próximo: ${e.title} às ${formatTime(e.start)}${e.travelBefore?` — saia ${departureStr(e)}`:''}`, e.location?`Em ${e.location}.`:'Prepare-se com antecedência.', "navigate('agenda')");
@@ -4017,7 +4018,7 @@ function renderDashboard() {
                 <div class="item-content">
                   <div class="item-title">${e.title}</div>
                   <div class="item-meta">
-                    <span class="text-xs text-muted">${formatTime(e.start)}${e.end ? ' — ' + formatTime(e.end) : ''}</span>
+                    <span class="text-xs text-muted">${e.allDay ? 'Dia inteiro' : formatTime(e.start) + (e.end ? ' — ' + formatTime(e.end) : '')}</span>
                     ${e.location ? `<span class="text-xs text-muted">📍 ${e.location}</span>` : ''}
                     ${e.goalId && goalRefName(e.goalId) ? `<span class="chip" title="Alinhado à meta">🎯 ${goalRefName(e.goalId).slice(0,22)}</span>` : ''}
                     ${e.estimatedCost ? `<span class="chip">~${fmtBRL(e.estimatedCost)}</span>` : ''}
@@ -5587,7 +5588,7 @@ function renderListView() {
         <div class="item-content">
           <div class="item-title">${e.title}</div>
           <div class="item-meta">
-            <span class="text-xs text-muted">${formatTime(e.start)}${e.end?' — '+formatTime(e.end):''}</span>
+            <span class="text-xs text-muted">${e.allDay ? 'Dia inteiro' : formatTime(e.start) + (e.end ? ' — ' + formatTime(e.end) : '')}</span>
             ${e.location ? `<span class="text-xs text-muted">📍 ${e.location}</span>` : ''}
             ${e.travelBefore ? `<span class="text-xs" style="color:var(--accent)">🚗 sair ${departureStr(e)} (${e.travelBefore}min)</span>` : ''}
             ${e.goalId && goalRefName(e.goalId) ? `<span class="chip" title="Alinhado à meta">🎯 ${goalRefName(e.goalId).slice(0,24)}</span>` : ''}
@@ -7143,6 +7144,7 @@ function getEventsForDate(dStr) {
     // dentro do intervalo real do evento (1 dia ou vários): mantém original p/ recorte correto na grade
     if (dStr >= sDate && dStr <= eDate) return e;
     // instância recorrente fora do intervalo original: reescreve a data mantendo o horário
+    if (e.allDay || e.start.length <= 10) return { ...e, start: dStr, end: dStr, _recur:true }; // dia inteiro continua sem horário
     const st = e.start.slice(11) || '09:00';
     return { ...e, start: `${dStr}T${st}`, end: e.end ? `${dStr}T${e.end.slice(11)}` : '', _recur:true };
   }).sort((a,b)=>a.start.localeCompare(b.start));
@@ -8305,7 +8307,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.50.0';
+const APP_VERSION = '3.51.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -11779,13 +11781,13 @@ function renderCommandCenter() {
   const agendaRows = [];
   for (let i = 0; i < 8 && agendaRows.length < 40; i++) {
     const ds = _dateAdd(today, i);
-    const evs = getEventsForDate(ds).filter(e => !(i === 0 && e.end && e.end.slice(0, 10) === today && e.end.slice(11, 16) < _minToHM(_nowMin())));
+    const evs = getEventsForDate(ds).filter(e => !(i === 0 && e.end && e.end.length > 10 && e.end.slice(0, 10) === today && e.end.slice(11, 16) < _minToHM(_nowMin())));
     if (!evs.length) continue;
     const dd = new Date(ds + 'T12:00:00');
     agendaRows.push(`<div class="cc-day">${i === 0 ? 'Hoje' : i === 1 ? 'Amanhã' : _WD[dd.getDay()] + ' ' + dd.getDate()}</div>`);
     evs.forEach(e => {
       const multi = e.start.slice(0, 10) !== ds;
-      agendaRows.push(`<div class="cc-ev" onclick="navigate('agenda')"><span class="cc-dot" style="background:${e.dim ? getDimColor(e.dim) : 'var(--text3)'}"></span><span class="cc-ev-time">${multi ? 'cont.' : formatTime(e.start) || 'dia'}</span><span class="cc-ev-title">${_esc(e.title)}</span></div>`);
+      agendaRows.push(`<div class="cc-ev" onclick="navigate('agenda')"><span class="cc-dot" style="background:${e.dim ? getDimColor(e.dim) : 'var(--text3)'}"></span><span class="cc-ev-time">${multi ? 'cont.' : formatTime(e.start) || 'dia todo'}</span><span class="cc-ev-title">${_esc(e.title)}</span></div>`);
     });
   }
 
@@ -12202,7 +12204,9 @@ function gcEventPop(rect, id, d) {
   const e = getEventsForDate(d).find(x => x.id === id) || base;
   const rec = base.recurrence && base.recurrence !== 'none';
   const recTxt = { daily: 'Todos os dias', weekly: 'Toda semana', monthly: 'Todo mês', custom: 'Repete: ' + ((base.recurDays || []).map(i => GC_DOW[i].toLowerCase()).join(', ')) }[base.recurrence] || '';
-  const when = gcIsMultiDay(e)
+  const when = (e.allDay || (e.start || '').length <= 10)
+    ? `${gcDateLabel(e.start.slice(0, 10))}${e.end && e.end.slice(0, 10) !== e.start.slice(0, 10) ? ' – ' + gcDateLabel(e.end.slice(0, 10)) : ''} · dia inteiro`
+    : gcIsMultiDay(e)
     ? `${gcDateLabel(e.start.slice(0, 10))}, ${formatTime(e.start)} – ${gcDateLabel(e.end.slice(0, 10))}, ${formatTime(e.end)}`
     : `${gcDateLabel(d)} · ${formatTime(e.start)}${e.end ? ' – ' + formatTime(e.end) : ''}`;
   const tb = Number(base.travelBefore) || 0, ta = Number(base.travelAfter) || 0;
@@ -15636,6 +15640,77 @@ gcQuickMore = function () {
   const kind = _gcQC && _gcQC.kind;
   _origGcQuickMoreV350.apply(this, arguments);
   if (g) populateGoalRefSelect(kind === 'task' ? 'task-goal' : 'event-goal', g);
+};
+
+// ── v3.51.0 — Compromisso de dia inteiro (sem horário) ──
+// Guardado como start/end só com a data (sem "T"), allDay:true. Fica na faixa "dia todo" e não ocupa horário.
+const _origGcIsMultiDayV351 = gcIsMultiDay;
+gcIsMultiDay = function (e) { return !!(e && (e.allDay || (e.start && e.start.length <= 10))) || _origGcIsMultiDayV351(e); };
+const _origBusyIntervalsV351 = busyIntervals;
+busyIntervals = function (dStr) { return _origBusyIntervalsV351(dStr).filter(b => !(b.ev && (b.ev.allDay || (b.ev.start || '').length <= 10))); };
+function _evAllDaySync() {
+  const on = !!(document.getElementById('event-allday') || {}).checked;
+  ['event-start-h','event-start-m','event-end-h','event-end-m'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = on ? 'none' : ''; });
+  document.querySelectorAll('#modal-event .text-muted').forEach(sp => { if (sp.textContent.trim() === ':' ) sp.style.display = on ? 'none' : ''; });
+  const tr = document.getElementById('event-travel-before'); const trRow = tr && tr.closest('.form-row'); if (trRow) trRow.style.display = on ? 'none' : '';
+}
+function _evAllDaySet(on) { const c = document.getElementById('event-allday'); if (c) c.checked = !!on; _evAllDaySync(); }
+['openEventModal', 'quickAddEventDay'].forEach(fn => {
+  const orig = window[fn]; if (typeof orig !== 'function') return;
+  window[fn] = function () { const r = orig.apply(this, arguments); _evAllDaySet(false); return r; };
+});
+const _origEditEventV351 = editEvent;
+editEvent = function (id) {
+  const r = _origEditEventV351.apply(this, arguments);
+  const e = (STATE.events || []).find(x => x.id === id);
+  if (e && (e.allDay || (e.start || '').length <= 10)) {
+    setEventDateTime('start', e.start.slice(0, 10), '09:00');
+    setEventDateTime('end', (e.end || e.start).slice(0, 10), '10:00');
+    _evAllDaySet(true);
+  } else _evAllDaySet(false);
+  return r;
+};
+const _origSaveEventV351 = saveEvent;
+saveEvent = function () {
+  const on = !!(document.getElementById('event-allday') || {}).checked;
+  const editId = document.getElementById('event-edit-id').value;
+  const n = (STATE.events || []).length;
+  const r = _origSaveEventV351.apply(this, arguments);
+  const e = editId ? STATE.events.find(x => x.id === editId) : (STATE.events.length > n ? STATE.events[STATE.events.length - 1] : null);
+  if (e) {
+    if (on) {
+      const s = e.start.slice(0, 10), en = (e.end || e.start).slice(0, 10);
+      Object.assign(e, { start: s, end: en < s ? s : en, allDay: true, travelBefore: 0, travelAfter: 0, workBlock: false, updatedAt: Date.now() });
+    } else if (e.allDay) { e.allDay = false; }
+    save(); if (typeof renderAgenda === 'function' && currentPage === 'agenda') renderAgenda();
+  }
+  return r;
+};
+// Criação rápida da Agenda: opção "dia inteiro"
+const _origGcOpenQuickCreateV351 = gcOpenQuickCreate;
+gcOpenQuickCreate = function () {
+  _origGcOpenQuickCreateV351.apply(this, arguments);
+  const when = document.getElementById('gc-qc-when'); if (!when) return;
+  const box = when.querySelector('div');
+  box.insertAdjacentHTML('beforeend', `<label style="display:flex;gap:4px;align-items:center;cursor:pointer;font-size:.8rem"><input type="checkbox" id="gc-qc-allday" onchange="document.querySelectorAll('#gc-qc-s,#gc-qc-e').forEach(i=>i.parentElement.style.display=this.checked?'none':'')"> dia inteiro</label>`);
+};
+const _origGcQuickSaveV351 = gcQuickSave;
+gcQuickSave = function () {
+  const on = !!(document.getElementById('gc-qc-allday') || {}).checked;
+  const isEvent = _gcQC && _gcQC.kind === 'event';
+  const n = STATE.events.length;
+  _origGcQuickSaveV351.apply(this, arguments);
+  if (on && isEvent && STATE.events.length > n) {
+    const e = STATE.events[STATE.events.length - 1], s = e.start.slice(0, 10);
+    Object.assign(e, { start: s, end: s, allDay: true, workBlock: false, work: false, updatedAt: Date.now() });
+    save(); renderAgenda();
+  }
+};
+const _origGcQuickMoreV351 = gcQuickMore;
+gcQuickMore = function () {
+  const on = !!(document.getElementById('gc-qc-allday') || {}).checked;
+  _origGcQuickMoreV351.apply(this, arguments);
+  if (on) _evAllDaySet(true);
 };
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
