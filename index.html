@@ -8297,7 +8297,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.53.1';
+const APP_VERSION = '3.54.0';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13003,7 +13003,8 @@ function _taskDurH(t) {
   const spent = taskSpentMin(t, true) / 60;
   if (!est) return spent > 0 ? 0.5 : null;
   const cal = estimateCalibration();
-  const total = est * (cal.ready ? cal.factor : 1);
+  const useRhythm = !t.exactEffort && (((STATE.settings || {}).planner || {}).useRhythm !== false);
+  const total = est * (cal.ready && useRhythm ? cal.factor : 1);
   return spent > 0 ? Math.max(0.25, total - spent) : total;
 }
 
@@ -13721,6 +13722,7 @@ setInterval(_workBlockAutoMark, 10000);
 //  task.reserveOff = você apagou uma reserva automática → o app não recria (só sugere)
 // ═══════════════════════════════════════════════════════════
 const RESERVE_HORIZON_DAYS = 14;
+function _focusMode() { return (((STATE.settings || {}).planner || {}).focus) !== false; } // padrão: atenção concentrada ligada
 function _reserveCfg() { const p = (STATE.settings && STATE.settings.planner) || {}; return { margin: p.margin != null ? Number(p.margin) : 2, auto: p.autoReserve !== false }; }
 function _taskNeedMin(t) { const h = _taskDurH(t); return Math.max(15, Math.round((h || 0.5) * 60)); } // mínimo de 15 min por tarefa
 function _futureTaskEvents(taskId) {
@@ -13767,20 +13769,32 @@ planWeek = function (offset) {
     const dur = need[t.id];
     const eff = _taskDurH(t);
     let rem = dur; const parts = [];
+    const focus = _focusMode();
     const place = (maxDay, kind) => {
+      const listOf = day => kind === 'any' ? day.blocks.concat(day.wblocks).sort((x, y) => x.s - y.s) : (kind === 'w' ? day.wblocks : day.blocks);
+      const okDay = day => !(maxDay && day.d > maxDay) && !(isWaiting && day.d !== t.due) && !(earliest && day.d < earliest);
+      // v3.54.0 — atenção concentrada: a tarefa inteira num bloco só, no primeiro horário em que ela cabe
+      if (focus && rem > 0 && parts.length === 0) {
+        for (const day of days) {
+          if (maxDay && day.d > maxDay) break;
+          if (!okDay(day)) continue;
+          const b = listOf(day).find(x => x.e - x.s >= rem);
+          if (b) { parts.push({ day, s: b.s, e: b.s + rem, w: !!b.w }); b.s += rem; rem = 0; return; }
+        }
+      }
       for (const day of days) {
         if (rem <= 0) break;
         if (maxDay && day.d > maxDay) break;
         if (isWaiting && day.d !== t.due) continue;
         if (earliest && day.d < earliest) continue;
         // 'any' = o primeiro horário livre do dia, seja fora ou dentro do expediente (sobra do trabalho)
-        const list = kind === 'any' ? day.blocks.concat(day.wblocks).sort((x, y) => x.s - y.s) : (kind === 'w' ? day.wblocks : day.blocks);
+        const list = listOf(day);
         for (const b of list) {
           if (rem <= 0) break;
           const len = b.e - b.s;
           if (len <= 0) continue;
           const chunk = Math.min(rem, len);
-          if (chunk < rem && chunk < 30) continue;
+          if (chunk < rem && chunk < (focus ? Math.min(90, rem) : 30)) continue;
           parts.push({ day, s: b.s, e: b.s + chunk, w: !!b.w });
           b.s += chunk; rem -= chunk;
         }
@@ -13994,6 +14008,8 @@ renderPlanner = function () {
   const card = c.querySelector('.card');
   if (card && !card.querySelector('.reserve-cfg')) card.insertAdjacentHTML('beforeend', `<div class="reserve-cfg text-sm mt-2">
       <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${cfg.auto ? 'checked' : ''} onchange="setReserveCfg('autoReserve',this.checked)"> 📅 Reservar automaticamente na Agenda as tarefas com prazo e estimativa</label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${_focusMode() ? 'checked' : ''} onchange="setFocusMode(this.checked)"> 🎯 Atenção concentrada: cada tarefa num bloco só, sem picar (só divide se não couber inteira em nenhum horário até o prazo)</label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${(((STATE.settings || {}).planner || {}).useRhythm !== false) ? 'checked' : ''} onchange="setRhythm(this.checked)"> ⏱ Ajustar minhas estimativas pelo meu ritmo real${estimateCalibration().ready ? ` (hoje: ${estimateCalibration().factor.toLocaleString('pt-BR',{maximumFractionDigits:2})}×)` : ' (ainda sem histórico suficiente)'}</label>
       <label style="display:flex;gap:6px;align-items:center">🛡 Terminar <input type="number" min="0" max="7" value="${cfg.margin}" class="form-input" style="width:56px;padding:2px 6px" onchange="setReserveCfg('margin',Math.max(0,Math.min(7,Number(this.value)||0)))"> dia(s) antes do prazo (margem para imprevistos)</label>
     </div>`);
   // reservas automáticas futuras, por tarefa
@@ -15827,6 +15843,40 @@ goalFinancials = function (goalId) {
   const dup = STATE.events.filter(e => e.goalId === goalId && STATE.transactions.some(t => t.eventId === e.id)).reduce((s,e) => s + (+e.estimatedCost || 0), 0);
   if (dup) { f.eventsCost -= dup; f.totalProjected -= dup; }
   return f;
+};
+
+
+// ── v3.54.0 — Atenção concentrada e tempo exato ──
+// Ao mudar o jeito de planejar, refaz as reservas automáticas que você não mexeu
+function _replanAutoReserves() {
+  const map = (STATE.settings || {}).autoReserveIds || {};
+  const now = Date.now();
+  const drop = new Set((STATE.events || []).filter(e => e.autoReserved && new Date(e.start).getTime() > now && (!e.autoStart || (e.start === e.autoStart && e.end === e.autoEnd))).map(e => e.id));
+  if (drop.size) { STATE.events = STATE.events.filter(e => !drop.has(e.id)); drop.forEach(id => delete map[id]); }
+  save(); try { autoReserve(true); } catch (e) {}
+}
+function setFocusMode(on) { STATE.settings.planner = { ...(STATE.settings.planner || {}), focus: !!on }; _replanAutoReserves(); toast(on ? '🎯 Tarefas em blocos inteiros — reservas refeitas' : 'Tarefas podem ser divididas de novo'); renderPlanner(); }
+// uma vez: com a atenção concentrada ligada por padrão, refaz reservas já picadas que você não mexeu
+setTimeout(() => { try { if (STATE.settings && !STATE.settings._focusMigrated) { STATE.settings._focusMigrated = true; if (_focusMode()) _replanAutoReserves(); } } catch (e) {} }, 4000);
+function setRhythm(on) { STATE.settings.planner = { ...(STATE.settings.planner || {}), useRhythm: !!on }; _replanAutoReserves(); renderPlanner(); }
+// Formulário da tarefa: "vai levar exatamente esse tempo"
+(function () {
+  const eff = document.getElementById('task-effort'); if (!eff || document.getElementById('task-exact')) return;
+  eff.insertAdjacentHTML('afterend', `<label class="text-xs" style="display:flex;gap:6px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="task-exact"> Vai levar exatamente esse tempo (não ajustar pelo meu ritmo)</label>`);
+})();
+const _origOpenTaskModalV354 = openTaskModal;
+openTaskModal = function (editId) { const r = _origOpenTaskModalV354.apply(this, arguments); if (!editId) { const c = document.getElementById('task-exact'); if (c) c.checked = false; } return r; };
+const _origEditTaskV354 = editTask;
+editTask = function (id) { const r = _origEditTaskV354.apply(this, arguments); const t = (STATE.tasks || []).find(x => x.id === id); const c = document.getElementById('task-exact'); if (c) c.checked = !!(t && t.exactEffort); return r; };
+const _origSaveTaskV354 = saveTask;
+saveTask = function () {
+  const exact = !!(document.getElementById('task-exact') || {}).checked;
+  const editId = (document.getElementById('task-edit-id') || {}).value;
+  const n = (STATE.tasks || []).length;
+  const r = _origSaveTaskV354.apply(this, arguments);
+  const t = editId ? STATE.tasks.find(x => x.id === editId) : (STATE.tasks.length > n ? STATE.tasks[STATE.tasks.length - 1] : null);
+  if (t && !!t.exactEffort !== exact) { t.exactEffort = exact; t.updatedAt = Date.now(); save(); try { autoReserve(true); } catch (e) {} }
+  return r;
 };
 
 // ── v3.40.0 patch: injectar cards de Ciclo e Alimentação ──────────────────
