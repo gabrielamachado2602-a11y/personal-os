@@ -8297,7 +8297,7 @@ function updateTopbarDate() {
 // ═══════════════════════════════════════════
 // INIT — detecção de versão nova
 // ═══════════════════════════════════════════
-const APP_VERSION = '3.54.2';
+const APP_VERSION = '3.54.3';
 
 // ── Google Drive Integration ─────────────────────────────
 const GOOGLE_CLIENT_ID = '331242199714-4oep0l3lv7repif92s643kbhn2aleero.apps.googleusercontent.com';
@@ -13758,7 +13758,8 @@ planWeek = function (offset) {
   const pool = open.filter(isPool);
   const later = open.filter(t => !pool.includes(t) && need[t.id] >= 15);
   const sc = (t) => _scoreTask(t, null, false).score;
-  pool.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || sc(b) - sc(a));
+  const isUrg = t => (t.priority === 'urgent' || (t.due && t.due < today)) && t.status !== 'waiting';
+  pool.sort((a, b) => (isUrg(b) - isUrg(a)) || (a.due || '9999').localeCompare(b.due || '9999') || sc(b) - sc(a));
   const ordered = pool.filter(t => t.work).concat(pool.filter(t => !t.work));
   const unplaced = [], late = [], waitingSkipped = [];
   let taskMin = 0;
@@ -13936,6 +13937,20 @@ function autoReserve(silent) {
         } else STATE.events = before; // nada melhorou: mantém como estava
       }
     } catch (err) { console.warn('reorganizar reservas', err); }
+    // 1e) v3.54.3: tarefa atrasada/urgente nova ou alterada → refaz as reservas automáticas que você não mexeu,
+    //     para a urgente pegar os primeiros horários (antes ela só ocupava os buracos entre reservas antigas)
+    {
+      const today = todayStr();
+      const urg = (STATE.tasks || []).filter(t => _taskOpen(t) && t.status !== 'waiting' && (t.priority === 'urgent' || (t.due && t.due < today)));
+      const sig = urg.map(t => [t.id, t.effort || '', t.exactEffort ? 1 : 0, t.due || '', t.priority].join(':')).sort().join('|') + '@' + today;
+      if (urg.length && STATE.settings._urgReplanSig !== sig) {
+        STATE.settings._urgReplanSig = sig;
+        // tarefa urgente/atrasada volta a ser reservada mesmo se um bloco dela foi apagado antes ("tirar da agenda")
+        urg.forEach(t => { if (t.reserveOff) { t.reserveOff = false; t.updatedAt = Date.now(); } });
+        const drop = new Set((STATE.events || []).filter(e => e.autoReserved && new Date(e.start).getTime() > now && (!e.autoStart || (e.start === e.autoStart && e.end === e.autoEnd))).map(e => e.id));
+        if (drop.size) { STATE.events = STATE.events.filter(e => !drop.has(e.id)); drop.forEach(id => delete map[id]); changed = true; }
+      }
+    }
     // 2) reservar: tarefas com prazo e estimativa, desta semana e da próxima
     let created = 0; const moved = [];
     for (const off of [0, 1]) {
